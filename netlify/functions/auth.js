@@ -1,10 +1,21 @@
 // IP 管理和认证系统
-// 使用 Netlify Blobs 存储数据（持久化存储）
-
-const { getStore } = require('@netlify/blobs')
+// 使用内存存储（注意：Function 重启后数据会丢失）
 
 // 管理员密码
 const ADMIN_PASSWORD = 'admin2024'
+
+// 内存存储
+let authData = {
+  passwords: {
+    'furniture2024': { active: true },
+    'admin123': { active: true },
+    'guest001': { active: true },
+    'guest002': { active: true },
+    'guest003': { active: true },
+  },
+  blockedIPs: [],
+  loginRecords: []
+}
 
 // 获取客户端真实 IP
 const getClientIP = (event) => {
@@ -46,25 +57,8 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    const store = getStore('auth-data')
     const { action, password, adminPassword, ipToBlock } = JSON.parse(event.body || '{}')
     const clientIP = getClientIP(event)
-
-    // 获取或初始化数据
-    let authData = await store.get('auth-data', { type: 'json' })
-    if (!authData) {
-      authData = {
-        passwords: {
-          'furniture2024': { active: true },
-          'admin123': { active: true },
-          'guest001': { active: true },
-          'guest002': { active: true },
-          'guest003': { active: true },
-        },
-        blockedIPs: [],
-        loginRecords: []
-      }
-    }
 
     // 检查 IP 是否被封禁
     if (authData.blockedIPs.includes(clientIP) && action !== 'admin-login' && action !== 'admin-unblock') {
@@ -115,9 +109,6 @@ exports.handler = async (event, context) => {
       if (authData.loginRecords.length > 1000) {
         authData.loginRecords = authData.loginRecords.slice(-1000)
       }
-
-      // 保存数据
-      await store.set('auth-data', JSON.stringify(authData))
 
       return {
         statusCode: 200,
@@ -216,7 +207,6 @@ exports.handler = async (event, context) => {
 
       if (!authData.blockedIPs.includes(ipToBlock)) {
         authData.blockedIPs.push(ipToBlock)
-        await store.set('auth-data', JSON.stringify(authData))
       }
 
       return {
@@ -248,7 +238,6 @@ exports.handler = async (event, context) => {
       }
 
       authData.blockedIPs = authData.blockedIPs.filter(ip => ip !== ipToBlock)
-      await store.set('auth-data', JSON.stringify(authData))
 
       return {
         statusCode: 200,
