@@ -1264,68 +1264,28 @@ const smartCrop = (sourceCanvas, padding = 2) => {
   return croppedCanvas
 }
 
-// 获取百度OCR Access Token
-const getBaiduAccessToken = async () => {
-  if (!baiduApiKey.value || !baiduSecretKey.value) {
-    return null
-  }
-
-  try {
-    // 使用CORS代理或直接调用（可能有跨域问题）
-    const response = await fetch(
-      `https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=${baiduApiKey.value}&client_secret=${baiduSecretKey.value}`,
-      {
-        method: 'GET',
-        mode: 'cors'
-      }
-    )
-    const data = await response.json()
-
-    if (data.error) {
-      console.error('百度API错误:', data.error_description)
-      alert(`百度API配置错误: ${data.error_description}`)
-      return null
-    }
-
-    if (data.access_token) {
-      baiduAccessToken.value = data.access_token
-      return data.access_token
-    }
-  } catch (error) {
-    console.error('获取百度Access Token失败:', error)
-    alert('获取百度Token失败，可能是跨域问题。建议使用"仅切图"模式手动填写。')
-  }
-  return null
-}
-
-// 使用百度OCR识别图片（直接调用百度API）- 带重试机制
+// 使用百度OCR识别图片（通过 Netlify Function 代理）- 带重试机制
 const recognizeWithBaidu = async (imageBase64, retryCount = 3) => {
   for (let attempt = 1; attempt <= retryCount; attempt++) {
     try {
       // 移除base64前缀
       const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '')
 
-      // 先获取 Access Token
-      if (!baiduAccessToken.value) {
-        const token = await getBaiduAccessToken()
-        if (!token) {
-          return { text: '', confidence: 0, error: true, errorMsg: '无法获取百度 Access Token' }
-        }
-      }
-
       if (attempt > 1) {
         console.log(`第 ${attempt} 次重试...`)
       }
 
-      // 直接调用百度 OCR API
-      const apiUrl = `https://aip.baidubce.com/rest/2.0/ocr/v1/general_basic?access_token=${baiduAccessToken.value}`
-
-      const response = await fetch(apiUrl, {
+      // 调用 Netlify Function 代理
+      const response = await fetch('/.netlify/functions/baidu-ocr', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
+          'Content-Type': 'application/json'
         },
-        body: `image=${encodeURIComponent(base64Data)}`
+        body: JSON.stringify({
+          apiKey: baiduApiKey.value,
+          secretKey: baiduSecretKey.value,
+          image: base64Data
+        })
       })
 
       console.log('收到响应:', response.status, response.statusText)
@@ -1343,12 +1303,12 @@ const recognizeWithBaidu = async (imageBase64, retryCount = 3) => {
       console.log('响应数据:', data)
 
       if (data.error) {
-        console.error('百度OCR错误:', data.error)
+        console.error('百度OCR错误:', data.error_msg)
         if (attempt < retryCount) {
           await new Promise(resolve => setTimeout(resolve, 2000))
           continue
         }
-        return { text: '', confidence: 0, error: true }
+        return { text: '', confidence: 0, error: true, errorMsg: data.error_msg }
       }
 
       if (data.error_code) {
@@ -1516,10 +1476,10 @@ const processImage = async () => {
         return
       }
 
-      // 如果遇到连接错误，提示用户启动代理服务器
+      // 如果遇到连接错误，提示用户检查配置
       if (result.error && result.errorMsg) {
         if (result.errorMsg.includes('Failed to fetch') || result.errorMsg.includes('NetworkError') || result.errorMsg.includes('HTTP')) {
-          alert(`无法连接到代理服务器！\n\n错误信息：${result.errorMsg}\n\n解决方法：\n1. 打开命令行窗口\n2. 进入项目目录\n3. 运行命令：node proxy-server.js\n4. 保持命令行窗口打开\n5. 重新点击"开始识别"按钮`)
+          alert(`无法连接到百度OCR服务！\n\n错误信息：${result.errorMsg}\n\n可能原因：\n1. 网络连接问题\n2. API Key 或 Secret Key 配置错误\n3. 百度账户配额不足\n\n请检查您的配置并重试。`)
           processing.value = false
           return
         }
