@@ -50,33 +50,10 @@ const handleLoginSuccess = () => {
 }
 
 // 退出登录
-const handleLogout = async () => {
-  if (confirm('确定要退出登录吗？退出后该密码可供其他人使用。')) {
-    try {
-      const authData = localStorage.getItem('furniture_auth')
-      if (authData) {
-        const { password, deviceId } = JSON.parse(authData)
-
-        // 调用登出 API
-        await fetch('/.netlify/functions/auth', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            action: 'logout',
-            password: password,
-            deviceId: deviceId
-          })
-        })
-      }
-    } catch (error) {
-      console.error('登出错误:', error)
-    } finally {
-      localStorage.removeItem('furniture_auth')
-      localStorage.removeItem('device_id')
-      isAuthenticated.value = false
-    }
+const handleLogout = () => {
+  if (confirm('确定要退出登录吗？')) {
+    localStorage.removeItem('furniture_auth')
+    isAuthenticated.value = false
   }
 }
 

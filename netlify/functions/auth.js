@@ -1,207 +1,262 @@
-// 简单的密码管理系统
-// 注意：这是一个基础实现，生产环境建议使用数据库
+// IP 管理和认证系统
+// 使用 Netlify Blobs 存储数据（持久化存储）
 
-// 密码配置：每个密码只能被一个设备使用
-const passwords = {
-  'furniture2024': { used: false, deviceId: null, expireTime: null },
-  'admin123': { used: false, deviceId: null, expireTime: null },
-  'guest001': { used: false, deviceId: null, expireTime: null },
-  'guest002': { used: false, deviceId: null, expireTime: null },
-  'guest003': { used: false, deviceId: null, expireTime: null },
+const { getStore } = require('@netlify/blobs')
+
+// 管理员密码
+const ADMIN_PASSWORD = 'admin2024'
+
+// 获取客户端真实 IP
+const getClientIP = (event) => {
+  return event.headers['x-forwarded-for']?.split(',')[0].trim() ||
+         event.headers['x-real-ip'] ||
+         event.headers['client-ip'] ||
+         'unknown'
 }
 
-// 会话有效期：7天
-const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000
+// 获取 IP 地理位置信息（使用免费 API）
+const getIPLocation = async (ip) => {
+  try {
+    const response = await fetch(`http://ip-api.com/json/${ip}?lang=zh-CN`)
+    const data = await response.json()
+    if (data.status === 'success') {
+      return {
+        country: data.country,
+        region: data.regionName,
+        city: data.city,
+        isp: data.isp
+      }
+    }
+  } catch (error) {
+    console.error('获取IP位置失败:', error)
+  }
+  return { country: '未知', region: '未知', city: '未知', isp: '未知' }
+}
 
 exports.handler = async (event, context) => {
-  // 设置 CORS
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
     'Content-Type': 'application/json'
   }
 
-  // 处理 OPTIONS 请求
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' }
   }
 
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: 'Method not allowed' })
-    }
-  }
-
   try {
-    const { action, password, deviceId } = JSON.parse(event.body)
+    const store = getStore('auth-data')
+    const { action, password, adminPassword, ipToBlock } = JSON.parse(event.body || '{}')
+    const clientIP = getClientIP(event)
 
-    // 登录操作
+    // 获取或初始化数据
+    let authData = await store.get('auth-data', { type: 'json' })
+    if (!authData) {
+      authData = {
+        passwords: {
+          'furniture2024': { active: true },
+          'admin123': { active: true },
+          'guest001': { active: true },
+          'guest002': { active: true },
+          'guest003': { active: true },
+        },
+        blockedIPs: [],
+        loginRecords: []
+      }
+    }
+
+    // 检查 IP 是否被封禁
+    if (authData.blockedIPs.includes(clientIP) && action !== 'admin-login' && action !== 'admin-unblock') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({
+          error: '您的 IP 已被管理员封禁，无法访问',
+          blocked: true
+        })
+      }
+    }
+
+    // 用户登录
     if (action === 'login') {
-      if (!password || !deviceId) {
+      if (!password) {
         return {
           statusCode: 400,
           headers,
-          body: JSON.stringify({ error: '缺少必要参数' })
+          body: JSON.stringify({ error: '缺少密码' })
         }
       }
 
-      // 检查密码是否存在
-      if (!passwords[password]) {
+      // 检查密码是否存在且激活
+      if (!authData.passwords[password] || !authData.passwords[password].active) {
         return {
           statusCode: 401,
           headers,
-          body: JSON.stringify({ error: '密码错误' })
+          body: JSON.stringify({ error: '密码错误或已被禁用' })
         }
       }
 
-      const passwordInfo = passwords[password]
-      const now = Date.now()
+      // 获取 IP 位置信息
+      const location = await getIPLocation(clientIP)
 
-      // 检查密码是否已被使用
-      if (passwordInfo.used) {
-        // 如果是同一个设备，允许登录（续期）
-        if (passwordInfo.deviceId === deviceId) {
-          // 检查是否过期
-          if (passwordInfo.expireTime && passwordInfo.expireTime > now) {
-            // 续期
-            passwordInfo.expireTime = now + SESSION_DURATION
-            return {
-              statusCode: 200,
-              headers,
-              body: JSON.stringify({
-                success: true,
-                message: '登录成功',
-                expireTime: passwordInfo.expireTime
-              })
-            }
-          } else {
-            // 已过期，重新分配
-            passwordInfo.used = true
-            passwordInfo.deviceId = deviceId
-            passwordInfo.expireTime = now + SESSION_DURATION
-            return {
-              statusCode: 200,
-              headers,
-              body: JSON.stringify({
-                success: true,
-                message: '登录成功',
-                expireTime: passwordInfo.expireTime
-              })
-            }
-          }
-        } else {
-          // 不同设备，检查是否过期
-          if (passwordInfo.expireTime && passwordInfo.expireTime > now) {
-            return {
-              statusCode: 403,
-              headers,
-              body: JSON.stringify({
-                error: '该密码已被其他设备使用，请联系管理员获取新密码'
-              })
-            }
-          } else {
-            // 已过期，可以重新分配给新设备
-            passwordInfo.used = true
-            passwordInfo.deviceId = deviceId
-            passwordInfo.expireTime = now + SESSION_DURATION
-            return {
-              statusCode: 200,
-              headers,
-              body: JSON.stringify({
-                success: true,
-                message: '登录成功',
-                expireTime: passwordInfo.expireTime
-              })
-            }
-          }
-        }
-      } else {
-        // 密码未被使用，分配给当前设备
-        passwordInfo.used = true
-        passwordInfo.deviceId = deviceId
-        passwordInfo.expireTime = now + SESSION_DURATION
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({
-            success: true,
-            message: '登录成功',
-            expireTime: passwordInfo.expireTime
-          })
-        }
+      // 记录登录
+      const loginRecord = {
+        password: password,
+        ip: clientIP,
+        location: location,
+        timestamp: Date.now(),
+        userAgent: event.headers['user-agent'] || 'unknown'
+      }
+
+      authData.loginRecords.push(loginRecord)
+
+      // 只保留最近 1000 条记录
+      if (authData.loginRecords.length > 1000) {
+        authData.loginRecords = authData.loginRecords.slice(-1000)
+      }
+
+      // 保存数据
+      await store.set('auth-data', JSON.stringify(authData))
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          message: '登录成功',
+          expireTime: Date.now() + 7 * 24 * 60 * 60 * 1000
+        })
       }
     }
 
-    // 验证操作
-    if (action === 'verify') {
-      if (!password || !deviceId) {
-        return {
-          statusCode: 400,
-          headers,
-          body: JSON.stringify({ error: '缺少必要参数' })
-        }
-      }
-
-      if (!passwords[password]) {
+    // 管理员登录
+    if (action === 'admin-login') {
+      if (adminPassword !== ADMIN_PASSWORD) {
         return {
           statusCode: 401,
           headers,
-          body: JSON.stringify({ error: '无效的会话' })
-        }
-      }
-
-      const passwordInfo = passwords[password]
-      const now = Date.now()
-
-      // 验证设备ID和过期时间
-      if (passwordInfo.deviceId === deviceId &&
-          passwordInfo.expireTime &&
-          passwordInfo.expireTime > now) {
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({
-            valid: true,
-            expireTime: passwordInfo.expireTime
-          })
-        }
-      } else {
-        return {
-          statusCode: 401,
-          headers,
-          body: JSON.stringify({ valid: false, error: '会话已过期或无效' })
-        }
-      }
-    }
-
-    // 登出操作
-    if (action === 'logout') {
-      if (!password || !deviceId) {
-        return {
-          statusCode: 400,
-          headers,
-          body: JSON.stringify({ error: '缺少必要参数' })
-        }
-      }
-
-      if (passwords[password] && passwords[password].deviceId === deviceId) {
-        passwords[password].used = false
-        passwords[password].deviceId = null
-        passwords[password].expireTime = null
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({ success: true, message: '已登出' })
+          body: JSON.stringify({ error: '管理员密码错误' })
         }
       }
 
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ success: true })
+        body: JSON.stringify({
+          success: true,
+          message: '管理员登录成功'
+        })
+      }
+    }
+
+    // 获取登录记录（管理员）
+    if (action === 'admin-get-records') {
+      if (adminPassword !== ADMIN_PASSWORD) {
+        return {
+          statusCode: 401,
+          headers,
+          body: JSON.stringify({ error: '管理员密码错误' })
+        }
+      }
+
+      // 按时间倒序排列
+      const records = authData.loginRecords.sort((a, b) => b.timestamp - a.timestamp)
+
+      // 统计每个 IP 的登录次数和使用的密码
+      const ipStats = {}
+      records.forEach(record => {
+        if (!ipStats[record.ip]) {
+          ipStats[record.ip] = {
+            ip: record.ip,
+            location: record.location,
+            passwords: new Set(),
+            loginCount: 0,
+            lastLogin: record.timestamp,
+            blocked: authData.blockedIPs.includes(record.ip)
+          }
+        }
+        ipStats[record.ip].passwords.add(record.password)
+        ipStats[record.ip].loginCount++
+      })
+
+      // 转换 Set 为 Array
+      Object.values(ipStats).forEach(stat => {
+        stat.passwords = Array.from(stat.passwords)
+      })
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          records: records.slice(0, 100), // 最近 100 条
+          ipStats: Object.values(ipStats),
+          blockedIPs: authData.blockedIPs
+        })
+      }
+    }
+
+    // 封禁 IP（管理员）
+    if (action === 'admin-block-ip') {
+      if (adminPassword !== ADMIN_PASSWORD) {
+        return {
+          statusCode: 401,
+          headers,
+          body: JSON.stringify({ error: '管理员密码错误' })
+        }
+      }
+
+      if (!ipToBlock) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: '缺少 IP 地址' })
+        }
+      }
+
+      if (!authData.blockedIPs.includes(ipToBlock)) {
+        authData.blockedIPs.push(ipToBlock)
+        await store.set('auth-data', JSON.stringify(authData))
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          message: `IP ${ipToBlock} 已被封禁`
+        })
+      }
+    }
+
+    // 解封 IP（管理员）
+    if (action === 'admin-unblock-ip') {
+      if (adminPassword !== ADMIN_PASSWORD) {
+        return {
+          statusCode: 401,
+          headers,
+          body: JSON.stringify({ error: '管理员密码错误' })
+        }
+      }
+
+      if (!ipToBlock) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: '缺少 IP 地址' })
+        }
+      }
+
+      authData.blockedIPs = authData.blockedIPs.filter(ip => ip !== ipToBlock)
+      await store.set('auth-data', JSON.stringify(authData))
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          message: `IP ${ipToBlock} 已解封`
+        })
       }
     }
 
@@ -216,7 +271,7 @@ exports.handler = async (event, context) => {
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: '服务器错误' })
+      body: JSON.stringify({ error: '服务器错误: ' + error.message })
     }
   }
 }

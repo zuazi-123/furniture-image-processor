@@ -37,24 +37,6 @@ const isLoading = ref(false)
 
 const emit = defineEmits(['login-success'])
 
-// 生成设备唯一标识
-const getDeviceId = () => {
-  let deviceId = localStorage.getItem('device_id')
-  if (!deviceId) {
-    // 生成基于浏览器指纹的设备ID
-    deviceId = btoa(
-      navigator.userAgent +
-      navigator.language +
-      screen.width +
-      screen.height +
-      new Date().getTimezoneOffset() +
-      Math.random().toString(36).substring(2)
-    )
-    localStorage.setItem('device_id', deviceId)
-  }
-  return deviceId
-}
-
 const handleLogin = async () => {
   errorMsg.value = ''
 
@@ -66,8 +48,6 @@ const handleLogin = async () => {
   isLoading.value = true
 
   try {
-    const deviceId = getDeviceId()
-
     // 调用认证 API
     const response = await fetch('/.netlify/functions/auth', {
       method: 'POST',
@@ -76,8 +56,7 @@ const handleLogin = async () => {
       },
       body: JSON.stringify({
         action: 'login',
-        password: password.value,
-        deviceId: deviceId
+        password: password.value
       })
     })
 
@@ -87,7 +66,6 @@ const handleLogin = async () => {
       // 登录成功，保存认证信息
       localStorage.setItem('furniture_auth', JSON.stringify({
         password: password.value,
-        deviceId: deviceId,
         expireTime: data.expireTime
       }))
 
@@ -109,30 +87,11 @@ onMounted(async () => {
   const authData = localStorage.getItem('furniture_auth')
   if (authData) {
     try {
-      const { password: savedPassword, deviceId, expireTime } = JSON.parse(authData)
+      const { expireTime } = JSON.parse(authData)
 
       // 检查是否过期
       if (expireTime && expireTime > Date.now()) {
-        // 验证会话是否仍然有效
-        const response = await fetch('/.netlify/functions/auth', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            action: 'verify',
-            password: savedPassword,
-            deviceId: deviceId
-          })
-        })
-
-        const data = await response.json()
-        if (data.valid) {
-          emit('login-success')
-        } else {
-          // 会话无效，清除本地存储
-          localStorage.removeItem('furniture_auth')
-        }
+        emit('login-success')
       } else {
         // 已过期，清除本地存储
         localStorage.removeItem('furniture_auth')
