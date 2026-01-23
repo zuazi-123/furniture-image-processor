@@ -3,7 +3,7 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
-  base: './', // 使用相对路径，适配 Electron
+  base: '/', // 使用绝对路径，适配 Web 部署
   server: {
     port: 5173,
     open: true,
