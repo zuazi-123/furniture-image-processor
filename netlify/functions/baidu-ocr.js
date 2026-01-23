@@ -1,6 +1,6 @@
 // 百度 OCR API 配置（在这里配置你的密钥）
-const BAIDU_API_KEY = 'your_api_key_here'  // 替换为你的 API Key
-const BAIDU_SECRET_KEY = 'your_secret_key_here'  // 替换为你的 Secret Key
+const BAIDU_API_KEY = 'hVUSfUTax1bm4vIsiDRPi1pe'  // 替换为你的 API Key
+const BAIDU_SECRET_KEY = 'G8gLHV61UjG7ng1Rr3WR3hWrLk1m3Abx'  // 替换为你的 Secret Key
 
 exports.handler = async (event, context) => {
   // 只允许 POST 请求
