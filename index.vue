@@ -126,6 +126,19 @@
           </span>
         </div>
         <div class="control-group">
+          <label>识别引擎：</label>
+          <select v-model="ocrEngine" class="engine-select">
+            <option value="baidu">百度 OCR（在线）</option>
+            <option value="umi">UMI-OCR（本地）</option>
+          </select>
+          <span class="hint-text">{{ ocrEngine === 'baidu' ? '使用百度云 OCR' : '需要本地运行 UMI-OCR 服务' }}</span>
+        </div>
+        <div class="control-group" v-if="ocrEngine === 'umi'">
+          <label>UMI-OCR 地址：</label>
+          <input type="text" v-model="umiOcrUrl" placeholder="http://127.0.0.1:1224" style="width: 200px" />
+          <span class="hint-text">默认端口 1224</span>
+        </div>
+        <div class="control-group">
           <label>
             <input type="checkbox" v-model="enhanceImage" />
             图片增强（提高清晰度和对比度）
@@ -372,6 +385,10 @@ categories.forEach(cat => {
 })
 
 const furnitureList = ref([]) // 当前分类的家具列表（用于显示）
+
+// OCR 引擎选择
+const ocrEngine = ref('baidu') // 'baidu' 或 'umi'
+const umiOcrUrl = ref('http://127.0.0.1:1224') // UMI-OCR 本地服务地址
 
 // 纯图版相关数据
 const pureImageStep = ref(1) // 当前步骤：1=上传，2=裁剪，3=预览导出
@@ -1322,6 +1339,79 @@ const recognizeWithBaidu = async (imageBase64, retryCount = 3) => {
   return { text: '', confidence: 0, error: true }
 }
 
+// 使用 UMI-OCR 识别图片（本地服务）- 带重试机制
+const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
+  for (let attempt = 1; attempt <= retryCount; attempt++) {
+    try {
+      if (attempt > 1) {
+        console.log(`第 ${attempt} 次重试...`)
+      }
+
+      // 调用 UMI-OCR 本地服务
+      const response = await fetch(`${umiOcrUrl.value}/api/ocr`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          base64: imageBase64
+        })
+      })
+
+      console.log('收到响应:', response.status, response.statusText)
+
+      if (!response.ok) {
+        console.error('HTTP错误:', response.status, response.statusText)
+        if (attempt < retryCount) {
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          continue
+        }
+        return { text: '', confidence: 0, error: true, errorMsg: `HTTP ${response.status}: ${response.statusText}` }
+      }
+
+      const data = await response.json()
+      console.log('响应数据:', data)
+
+      // UMI-OCR 返回格式: { code: 100, data: [{text: "...", score: 0.95}] }
+      if (data.code === 100 && data.data && data.data.length > 0) {
+        // 合并所有识别的文字
+        const text = data.data.map(item => item.text).join(' ')
+        const avgScore = data.data.reduce((sum, item) => sum + (item.score || 0), 0) / data.data.length
+        const confidence = Math.round(avgScore * 100)
+
+        console.log('识别成功:', text, '置信度:', confidence)
+        return { text, confidence }
+      }
+
+      // 如果没有识别到文字
+      if (data.code === 100 && (!data.data || data.data.length === 0)) {
+        return { text: '', confidence: 0 }
+      }
+
+      // 其他错误
+      if (data.code !== 100) {
+        console.error('UMI-OCR错误:', data.message || data.data)
+        if (attempt < retryCount) {
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          continue
+        }
+        return { text: '', confidence: 0, error: true, errorMsg: data.message || '识别失败' }
+      }
+
+      return { text: '', confidence: 0 }
+    } catch (error) {
+      console.error(`UMI-OCR识别失败 (尝试 ${attempt}/${retryCount}):`, error.message)
+      if (attempt < retryCount) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        continue
+      }
+      return { text: '', confidence: 0, error: true, errorMsg: error.message }
+    }
+  }
+
+  return { text: '', confidence: 0, error: true }
+}
+
 // Tesseract识别（作为备选方案）
 const fallbackToTesseract = async (worker, cellImage, psmModes, currentCell) => {
   let bestResult = { text: '', confidence: 0, modeName: '' }
@@ -1430,9 +1520,15 @@ const processImage = async () => {
 
       const cellImage = finalCanvas.toDataURL('image/png')
 
-      // 使用百度OCR识别
-      const result = await recognizeWithBaidu(cellImage)
-      console.log(`格子 ${currentCell} [百度OCR]:`, result.text, '置信度:', result.confidence)
+      // 根据选择的引擎调用不同的识别函数
+      let result
+      if (ocrEngine.value === 'umi') {
+        result = await recognizeWithUmiOCR(cellImage)
+        console.log(`格子 ${currentCell} [UMI-OCR]:`, result.text, '置信度:', result.confidence)
+      } else {
+        result = await recognizeWithBaidu(cellImage)
+        console.log(`格子 ${currentCell} [百度OCR]:`, result.text, '置信度:', result.confidence)
+      }
 
       // 如果遇到限流错误，提示用户并停止
       if (result.isRateLimit) {
@@ -1444,7 +1540,12 @@ const processImage = async () => {
       // 如果遇到连接错误，提示用户检查配置
       if (result.error && result.errorMsg) {
         if (result.errorMsg.includes('Failed to fetch') || result.errorMsg.includes('NetworkError') || result.errorMsg.includes('HTTP')) {
-          alert(`无法连接到百度OCR服务！\n\n错误信息：${result.errorMsg}\n\n可能原因：\n1. 网络连接问题\n2. API Key 或 Secret Key 配置错误\n3. 百度账户配额不足\n\n请检查您的配置并重试。`)
+          const engineName = ocrEngine.value === 'umi' ? 'UMI-OCR' : '百度OCR'
+          const errorTips = ocrEngine.value === 'umi'
+            ? `\n\n可能原因：\n1. UMI-OCR 服务未启动\n2. 服务地址配置错误（当前：${umiOcrUrl.value}）\n3. 端口被占用\n\n解决方法：\n- 确保 UMI-OCR 服务正在运行\n- 检查服务地址是否正确\n- 尝试重启 UMI-OCR 服务`
+            : `\n\n可能原因：\n1. 网络连接问题\n2. API Key 或 Secret Key 配置错误\n3. 百度账户配额不足\n\n请检查您的配置并重试。`
+
+          alert(`无法连接到${engineName}服务！\n\n错误信息：${result.errorMsg}${errorTips}`)
           processing.value = false
           return
         }
@@ -2704,5 +2805,26 @@ h3 {
 
 .close-preview:hover {
   background: #f78989;
+}
+
+/* 引擎选择器样式 */
+.engine-select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: white;
+}
+
+.engine-select:focus {
+  outline: none;
+  border-color: #409eff;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.1);
+}
+
+.engine-select:hover {
+  border-color: #409eff;
 }
 </style>
