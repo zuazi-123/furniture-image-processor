@@ -1,4 +1,4 @@
 import { createApp } from 'vue'
-import FurnitureProcessor from './index.vue'
+import App from './App.vue'
 
-createApp(FurnitureProcessor).mount('#app')
+createApp(App).mount('#app')
