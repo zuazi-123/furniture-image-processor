@@ -132,14 +132,6 @@
           </label>
           <span class="hint-text">推荐开启，可提高识别准确率</span>
         </div>
-        <div class="control-group">
-          <label>API Key:</label>
-          <input type="text" v-model="baiduApiKey" placeholder="百度API Key" @change="saveBaiduConfig" />
-        </div>
-        <div class="control-group">
-          <label>Secret Key:</label>
-          <input type="text" v-model="baiduSecretKey" placeholder="百度Secret Key" @change="saveBaiduConfig" />
-        </div>
         <button @click="processImage()" class="process-btn">
           🔍 开始识别
         </button>
@@ -380,9 +372,6 @@ categories.forEach(cat => {
 })
 
 const furnitureList = ref([]) // 当前分类的家具列表（用于显示）
-const baiduApiKey = ref('')
-const baiduSecretKey = ref('')
-const baiduAccessToken = ref('')
 
 // 纯图版相关数据
 const pureImageStep = ref(1) // 当前步骤：1=上传，2=裁剪，3=预览导出
@@ -551,23 +540,6 @@ const updateRects = () => {
 
 // 使用watch监听间距变化
 watch([horizontalGap, verticalGap], updateRects)
-
-// 从localStorage加载百度配置
-const loadBaiduConfig = () => {
-  const savedApiKey = localStorage.getItem('baiduApiKey')
-  const savedSecretKey = localStorage.getItem('baiduSecretKey')
-  if (savedApiKey) baiduApiKey.value = savedApiKey
-  if (savedSecretKey) baiduSecretKey.value = savedSecretKey
-}
-
-// 保存百度配置
-const saveBaiduConfig = () => {
-  localStorage.setItem('baiduApiKey', baiduApiKey.value)
-  localStorage.setItem('baiduSecretKey', baiduSecretKey.value)
-}
-
-// 页面加载时读取配置
-loadBaiduConfig()
 
 // 切换模式
 const switchMode = (mode) => {
@@ -1282,8 +1254,6 @@ const recognizeWithBaidu = async (imageBase64, retryCount = 3) => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          apiKey: baiduApiKey.value,
-          secretKey: baiduSecretKey.value,
           image: base64Data
         })
       })
@@ -1388,11 +1358,6 @@ const fallbackToTesseract = async (worker, cellImage, psmModes, currentCell) => 
 // 处理图像 - 自动识别模式
 const processImage = async () => {
   if (!uploadedImage.value) return
-
-  if (!baiduApiKey.value || !baiduSecretKey.value) {
-    alert('请先填写百度API Key和Secret Key！\n\n申请地址：https://console.bce.baidu.com/ai/#/ai/ocr/overview/index')
-    return
-  }
 
   if (allRects.value.length === 0) {
     alert('请先在图片上绘制第一个框！\n\n在第一个家具上按住鼠标拖动绘制红色框，系统会自动生成所有框。')

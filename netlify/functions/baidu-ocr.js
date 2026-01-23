@@ -1,3 +1,7 @@
+// 百度 OCR API 配置（在这里配置你的密钥）
+const BAIDU_API_KEY = 'your_api_key_here'  // 替换为你的 API Key
+const BAIDU_SECRET_KEY = 'your_secret_key_here'  // 替换为你的 Secret Key
+
 exports.handler = async (event, context) => {
   // 只允许 POST 请求
   if (event.httpMethod !== 'POST') {
@@ -8,14 +12,18 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    const { apiKey, secretKey, image } = JSON.parse(event.body)
+    const { image } = JSON.parse(event.body)
 
-    if (!apiKey || !secretKey || !image) {
+    if (!image) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: 'Missing required parameters' })
+        body: JSON.stringify({ error: 'Missing image parameter' })
       }
     }
+
+    // 使用服务器端配置的密钥
+    const apiKey = BAIDU_API_KEY
+    const secretKey = BAIDU_SECRET_KEY
 
     // 步骤1: 获取 Access Token
     const tokenResponse = await fetch(
