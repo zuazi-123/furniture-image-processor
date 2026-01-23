@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "proxy": "node proxy-server.js",
     "electron": "electron .",
-    "electron:dev": "concurrently \"npm run dev:vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "concurrently \"npm run dev:vite\" \"wait-on http://localhost:5175 && electron .\"",
     "electron:build": "npm run build && electron-builder",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder"

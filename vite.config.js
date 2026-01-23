@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [vue()],
   base: '/', // 使用绝对路径，适配 Web 部署
   server: {
-    port: 5173,
+    port: 5175,
     open: true,
     proxy: {
       '/api/baidu-ocr': {
