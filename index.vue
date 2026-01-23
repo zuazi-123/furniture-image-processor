@@ -1298,38 +1298,34 @@ const getBaiduAccessToken = async () => {
   return null
 }
 
-// 使用百度OCR识别图片（通过Vite代理）- 带重试机制
+// 使用百度OCR识别图片（直接调用百度API）- 带重试机制
 const recognizeWithBaidu = async (imageBase64, retryCount = 3) => {
   for (let attempt = 1; attempt <= retryCount; attempt++) {
     try {
       // 移除base64前缀
       const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '')
 
-      // 自动检测环境：开发环境使用Vite代理，生产环境直接连接代理服务器
-      // 生产环境尝试多个可能的地址
-      let apiUrl = '/api/baidu-ocr' // 默认使用相对路径
-
-      if (!import.meta.env.DEV) {
-        // 生产环境：尝试使用代理服务器
-        apiUrl = 'http://localhost:3000'
+      // 先获取 Access Token
+      if (!baiduAccessToken.value) {
+        const token = await getBaiduAccessToken()
+        if (!token) {
+          return { text: '', confidence: 0, error: true, errorMsg: '无法获取百度 Access Token' }
+        }
       }
-
-      console.log('调用百度OCR API:', apiUrl, '开发模式:', import.meta.env.DEV)
 
       if (attempt > 1) {
         console.log(`第 ${attempt} 次重试...`)
       }
 
+      // 直接调用百度 OCR API
+      const apiUrl = `https://aip.baidubce.com/rest/2.0/ocr/v1/general_basic?access_token=${baiduAccessToken.value}`
+
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/x-www-form-urlencoded'
         },
-        body: JSON.stringify({
-          apiKey: baiduApiKey.value,
-          secretKey: baiduSecretKey.value,
-          image: base64Data
-        })
+        body: `image=${encodeURIComponent(base64Data)}`
       })
 
       console.log('收到响应:', response.status, response.statusText)
