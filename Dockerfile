@@ -33,4 +33,13 @@ ENV PORT=1224
 ENV HOST=0.0.0.0
 
 # 启动 HTTP 服务
-CMD python main.py --no-gui --port ${PORT} --host ${HOST}
+# UMI-OCR 使用 UmiOCR-data/main.py 作为入口
+CMD if [ -f "UmiOCR-data/main.py" ]; then \
+        python UmiOCR-data/main.py --no-gui --port ${PORT} --host ${HOST}; \
+    elif [ -f "main.py" ]; then \
+        python main.py --no-gui --port ${PORT} --host ${HOST}; \
+    else \
+        echo "Error: Cannot find main.py. Directory structure:"; \
+        ls -la; \
+        exit 1; \
+    fi
