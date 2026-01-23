@@ -3,6 +3,15 @@
   publish = "dist"
   functions = "netlify/functions"
 
+[dev]
+  command = "npm run dev:vite"
+  targetPort = 5175
+  port = 8888
+  autoLaunch = false
+
+[functions]
+  directory = "netlify/functions"
+
 [[redirects]]
   from = "/admin.html"
   to = "/admin.html"

@@ -22,6 +22,12 @@ const isAuthenticated = ref(false)
 
 // 检查是否已登录
 const checkAuth = () => {
+  // 开发环境：自动跳过认证
+  if (import.meta.env.DEV) {
+    isAuthenticated.value = true
+    return
+  }
+
   const authData = localStorage.getItem('furniture_auth')
 
   if (authData) {

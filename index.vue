@@ -387,7 +387,8 @@ categories.forEach(cat => {
 const furnitureList = ref([]) // 当前分类的家具列表（用于显示）
 
 // OCR 引擎选择
-const ocrEngine = ref('baidu') // 'baidu' 或 'umi'
+// 开发环境默认使用 UMI-OCR（本地），生产环境使用百度 OCR
+const ocrEngine = ref(import.meta.env.DEV ? 'umi' : 'baidu')
 const umiOcrUrl = ref('http://127.0.0.1:1224') // UMI-OCR 本地服务地址
 
 // 纯图版相关数据
@@ -1264,15 +1265,25 @@ const recognizeWithBaidu = async (imageBase64, retryCount = 3) => {
         console.log(`第 ${attempt} 次重试...`)
       }
 
-      // 调用 Netlify Function 代理
-      const response = await fetch('/.netlify/functions/baidu-ocr', {
+      // 开发环境使用本地代理，生产环境使用 Netlify Functions
+      const apiUrl = import.meta.env.DEV ? '/api/baidu-ocr' : '/.netlify/functions/baidu-ocr'
+
+      // 开发环境需要传递 API Key（从 netlify functions 配置中获取）
+      const requestBody = import.meta.env.DEV
+        ? {
+            apiKey: 'hVUSfUTax1bm4vIsiDRPi1pe',
+            secretKey: 'G8gLHV61UjG7ng1Rr3WR3hWrLk1m3Abx',
+            image: base64Data
+          }
+        : { image: base64Data }
+
+      // 调用 OCR API
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          image: base64Data
-        })
+        body: JSON.stringify(requestBody)
       })
 
       console.log('收到响应:', response.status, response.statusText)
@@ -1347,6 +1358,9 @@ const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
         console.log(`第 ${attempt} 次重试...`)
       }
 
+      // 移除 base64 前缀（如果有的话）
+      const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '')
+
       // 调用 UMI-OCR 本地服务
       const response = await fetch(`${umiOcrUrl.value}/api/ocr`, {
         method: 'POST',
@@ -1354,7 +1368,7 @@ const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          base64: imageBase64
+          base64: base64Data
         })
       })
 
@@ -1520,44 +1534,86 @@ const processImage = async () => {
 
       const cellImage = finalCanvas.toDataURL('image/png')
 
-      // 根据选择的引擎调用不同的识别函数
+      // 根据选择的引擎调用不同的识别函数，失败时自动重试
       let result
-      if (ocrEngine.value === 'umi') {
-        result = await recognizeWithUmiOCR(cellImage)
-        console.log(`格子 ${currentCell} [UMI-OCR]:`, result.text, '置信度:', result.confidence)
-      } else {
-        result = await recognizeWithBaidu(cellImage)
-        console.log(`格子 ${currentCell} [百度OCR]:`, result.text, '置信度:', result.confidence)
-      }
-
-      // 如果遇到限流错误，提示用户并停止
-      if (result.isRateLimit) {
-        alert(`百度OCR请求限制：${result.errorMsg}\n\n可能原因：\n1. 达到QPS限制（每秒请求次数）\n2. 达到每日调用次数限制\n3. 账户配额不足\n\n建议：\n- 检查百度控制台的配额使用情况\n- 增加请求间隔时间\n- 联系百度客服确认账户状态`)
-        processing.value = false
-        return
-      }
-
-      // 如果遇到连接错误，提示用户检查配置
-      if (result.error && result.errorMsg) {
-        if (result.errorMsg.includes('Failed to fetch') || result.errorMsg.includes('NetworkError') || result.errorMsg.includes('HTTP')) {
-          const engineName = ocrEngine.value === 'umi' ? 'UMI-OCR' : '百度OCR'
-          const errorTips = ocrEngine.value === 'umi'
-            ? `\n\n可能原因：\n1. UMI-OCR 服务未启动\n2. 服务地址配置错误（当前：${umiOcrUrl.value}）\n3. 端口被占用\n\n解决方法：\n- 确保 UMI-OCR 服务正在运行\n- 检查服务地址是否正确\n- 尝试重启 UMI-OCR 服务`
-            : `\n\n可能原因：\n1. 网络连接问题\n2. API Key 或 Secret Key 配置错误\n3. 百度账户配额不足\n\n请检查您的配置并重试。`
-
-          alert(`无法连接到${engineName}服务！\n\n错误信息：${result.errorMsg}${errorTips}`)
-          processing.value = false
-          return
-        }
-      }
-
+      let retryCount = 3 // 最多重试3次
       let name = ''
       let quantity = ''
 
-      if (result.text && !result.error) {
-        const parsed = parseText(result.text)
-        name = parsed.name
-        quantity = parsed.quantity
+      for (let retry = 0; retry < retryCount; retry++) {
+        if (retry > 0) {
+          console.log(`格子 ${currentCell} 第 ${retry + 1} 次尝试识别...`)
+          await new Promise(resolve => setTimeout(resolve, 500)) // 重试前等待500ms
+        }
+
+        if (ocrEngine.value === 'umi') {
+          result = await recognizeWithUmiOCR(cellImage)
+          console.log(`格子 ${currentCell} [UMI-OCR]:`, result.text, '置信度:', result.confidence)
+        } else {
+          result = await recognizeWithBaidu(cellImage)
+          console.log(`格子 ${currentCell} [百度OCR]:`, result.text, '置信度:', result.confidence)
+        }
+
+        // 如果遇到限流错误，提示用户并停止
+        if (result.isRateLimit) {
+          alert(`百度OCR请求限制：${result.errorMsg}\n\n可能原因：\n1. 达到QPS限制（每秒请求次数）\n2. 达到每日调用次数限制\n3. 账户配额不足\n\n建议：\n- 检查百度控制台的配额使用情况\n- 增加请求间隔时间\n- 联系百度客服确认账户状态`)
+          processing.value = false
+          return
+        }
+
+        // 如果遇到连接错误，提示用户检查配置
+        if (result.error && result.errorMsg) {
+          if (result.errorMsg.includes('Failed to fetch') || result.errorMsg.includes('NetworkError') || result.errorMsg.includes('HTTP')) {
+            const engineName = ocrEngine.value === 'umi' ? 'UMI-OCR' : '百度OCR'
+            const errorTips = ocrEngine.value === 'umi'
+              ? `\n\n可能原因：\n1. UMI-OCR 服务未启动\n2. 服务地址配置错误（当前：${umiOcrUrl.value}）\n3. 端口被占用\n\n解决方法：\n- 确保 UMI-OCR 服务正在运行\n- 检查服务地址是否正确\n- 尝试重启 UMI-OCR 服务`
+              : `\n\n可能原因：\n1. 网络连接问题\n2. API Key 或 Secret Key 配置错误\n3. 百度账户配额不足\n\n请检查您的配置并重试。`
+
+            alert(`无法连接到${engineName}服务！\n\n错误信息：${result.errorMsg}${errorTips}`)
+            processing.value = false
+            return
+          }
+        }
+
+        // 尝试解析识别结果
+        if (result.text && !result.error) {
+          const parsed = parseText(result.text)
+          name = parsed.name
+          quantity = parsed.quantity
+
+          // 如果成功识别到名称，跳出重试循环
+          if (name && name.trim() !== '') {
+            break
+          }
+        }
+      }
+
+      // 重试多次后仍然失败，询问用户
+      if (!name || name.trim() === '') {
+        const userChoice = confirm(
+          `格子 ${currentCell} 重试 ${retryCount} 次后仍未识别到名称\n\n` +
+          `最后识别结果：${result.text || '(空)'}\n` +
+          `置信度：${result.confidence}%\n\n` +
+          `点击"确定"继续识别下一个\n` +
+          `点击"取消"停止识别，手动编辑当前结果`
+        )
+
+        if (!userChoice) {
+          // 用户选择停止，保存当前结果
+          furnitureList.value.push({
+            image: cellImage,
+            name: name || '',
+            quantity: quantity || '',
+            price: '',
+            confidence: result.confidence + '%',
+            category: currentCategory.value
+          })
+
+          processing.value = false
+          progressText.value = `已停止识别，共识别 ${currentCell} 个格子`
+          progress.value = (currentCell / totalCells) * 100
+          return
+        }
       }
 
       furnitureList.value.push({
