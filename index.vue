@@ -387,9 +387,10 @@ categories.forEach(cat => {
 const furnitureList = ref([]) // 当前分类的家具列表（用于显示）
 
 // OCR 引擎选择
-// 开发环境默认使用 UMI-OCR（本地），生产环境使用百度 OCR
-const ocrEngine = ref(import.meta.env.DEV ? 'umi' : 'baidu')
-const umiOcrUrl = ref('http://127.0.0.1:1224') // UMI-OCR 本地服务地址
+// 默认使用 UMI-OCR
+const ocrEngine = ref('umi')
+// 生产环境使用云端 UMI-OCR 地址，开发环境使用本地地址
+const umiOcrUrl = ref(import.meta.env.DEV ? 'http://127.0.0.1:1224' : 'https://umi-ocr-service.onrender.com')
 
 // 纯图版相关数据
 const pureImageStep = ref(1) // 当前步骤：1=上传，2=裁剪，3=预览导出
