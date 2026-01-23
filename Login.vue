@@ -10,10 +10,12 @@
           type="password"
           placeholder="请输入密码"
           @keyup.enter="handleLogin"
+          :disabled="isLoading"
           class="password-input"
         />
-        <button @click="handleLogin" class="login-btn">
-          登录
+        <button @click="handleLogin" :disabled="isLoading" class="login-btn">
+          <span v-if="!isLoading">登录</span>
+          <span v-else>登录中...</span>
         </button>
       </div>
 
@@ -27,21 +29,33 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 
 const password = ref('')
 const errorMsg = ref('')
+const isLoading = ref(false)
 
 const emit = defineEmits(['login-success'])
 
-// 设置你的密码（可以设置多个密码）
-const validPasswords = [
-  'furniture2024',  // 默认密码
-  'admin123',       // 管理员密码
-  // 你可以在这里添加更多密码
-]
+// 生成设备唯一标识
+const getDeviceId = () => {
+  let deviceId = localStorage.getItem('device_id')
+  if (!deviceId) {
+    // 生成基于浏览器指纹的设备ID
+    deviceId = btoa(
+      navigator.userAgent +
+      navigator.language +
+      screen.width +
+      screen.height +
+      new Date().getTimezoneOffset() +
+      Math.random().toString(36).substring(2)
+    )
+    localStorage.setItem('device_id', deviceId)
+  }
+  return deviceId
+}
 
-const handleLogin = () => {
+const handleLogin = async () => {
   errorMsg.value = ''
 
   if (!password.value) {
@@ -49,20 +63,86 @@ const handleLogin = () => {
     return
   }
 
-  if (validPasswords.includes(password.value)) {
-    // 密码正确，保存到 localStorage（7天有效）
-    const expireTime = Date.now() + 7 * 24 * 60 * 60 * 1000
-    localStorage.setItem('furniture_auth', JSON.stringify({
-      token: btoa(password.value), // 简单加密
-      expire: expireTime
-    }))
+  isLoading.value = true
 
-    emit('login-success')
-  } else {
-    errorMsg.value = '密码错误，请重试'
-    password.value = ''
+  try {
+    const deviceId = getDeviceId()
+
+    // 调用认证 API
+    const response = await fetch('/.netlify/functions/auth', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        action: 'login',
+        password: password.value,
+        deviceId: deviceId
+      })
+    })
+
+    const data = await response.json()
+
+    if (response.ok && data.success) {
+      // 登录成功，保存认证信息
+      localStorage.setItem('furniture_auth', JSON.stringify({
+        password: password.value,
+        deviceId: deviceId,
+        expireTime: data.expireTime
+      }))
+
+      emit('login-success')
+    } else {
+      errorMsg.value = data.error || '登录失败，请重试'
+      password.value = ''
+    }
+  } catch (error) {
+    console.error('登录错误:', error)
+    errorMsg.value = '网络错误，请检查连接后重试'
+  } finally {
+    isLoading.value = false
   }
 }
+
+// 页面加载时检查是否已登录
+onMounted(async () => {
+  const authData = localStorage.getItem('furniture_auth')
+  if (authData) {
+    try {
+      const { password: savedPassword, deviceId, expireTime } = JSON.parse(authData)
+
+      // 检查是否过期
+      if (expireTime && expireTime > Date.now()) {
+        // 验证会话是否仍然有效
+        const response = await fetch('/.netlify/functions/auth', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            action: 'verify',
+            password: savedPassword,
+            deviceId: deviceId
+          })
+        })
+
+        const data = await response.json()
+        if (data.valid) {
+          emit('login-success')
+        } else {
+          // 会话无效，清除本地存储
+          localStorage.removeItem('furniture_auth')
+        }
+      } else {
+        // 已过期，清除本地存储
+        localStorage.removeItem('furniture_auth')
+      }
+    } catch (error) {
+      console.error('验证错误:', error)
+      localStorage.removeItem('furniture_auth')
+    }
+  }
+})
 </script>
 
 <style scoped>
@@ -137,6 +217,17 @@ h1 {
 
 .login-btn:active {
   transform: translateY(0);
+}
+
+.login-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.password-input:disabled {
+  background: #f5f5f5;
+  cursor: not-allowed;
 }
 
 .error-msg {
