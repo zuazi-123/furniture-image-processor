@@ -14,7 +14,10 @@
     "electron:dev": "concurrently \"npm run dev:vite\" \"wait-on http://localhost:5175 && electron .\"",
     "electron:build": "npm run build && electron-builder",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "build": {
     "appId": "com.furniture.processor",
@@ -61,6 +64,7 @@
     "vue": "^3.4.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.9.6",
     "@vitejs/plugin-vue": "^5.0.0",
     "concurrently": "^9.2.1",
     "electron": "^40.0.0",
