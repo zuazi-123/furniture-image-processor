@@ -387,10 +387,10 @@ categories.forEach(cat => {
 const furnitureList = ref([]) // 当前分类的家具列表（用于显示）
 
 // OCR 引擎选择
-// 默认使用 UMI-OCR
+// 默认使用 UMI-OCR（本地）
 const ocrEngine = ref('umi')
-// 生产环境使用云端 RapidOCR 地址，开发环境使用本地地址
-const umiOcrUrl = ref(import.meta.env.DEV ? 'http://127.0.0.1:1224' : 'https://furniture-image-processor.onrender.com')
+// 默认使用本地 UMI-OCR 服务（通过 Vite 代理）
+const umiOcrUrl = ref('/api/umi-ocr')
 
 // 纯图版相关数据
 const pureImageStep = ref(1) // 当前步骤：1=上传，2=裁剪，3=预览导出
@@ -1267,9 +1267,8 @@ const recognizeWithBaidu = async (imageBase64, retryCount = 3) => {
       }
 
       // 开发环境使用本地代理，生产环境使用 Netlify Functions
-      const apiUrl = import.meta.env.DEV ? '/api/baidu-ocr' : '/.netlify/functions/baidu-ocr'
+      const apiUrl = import.meta.env.DEV ? 'http://localhost:3000' : '/.netlify/functions/baidu-ocr'
 
-      // 开发环境需要传递 API Key（从 netlify functions 配置中获取）
       const requestBody = import.meta.env.DEV
         ? {
             apiKey: 'hVUSfUTax1bm4vIsiDRPi1pe',
@@ -1278,7 +1277,6 @@ const recognizeWithBaidu = async (imageBase64, retryCount = 3) => {
           }
         : { image: base64Data }
 
-      // 调用 OCR API
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -1287,15 +1285,8 @@ const recognizeWithBaidu = async (imageBase64, retryCount = 3) => {
         body: JSON.stringify(requestBody)
       })
 
-      console.log('收到响应:', response.status, response.statusText)
-
       if (!response.ok) {
-        console.error('HTTP错误:', response.status, response.statusText)
-        if (attempt < retryCount) {
-          await new Promise(resolve => setTimeout(resolve, 2000)) // 等待2秒后重试
-          continue
-        }
-        return { text: '', confidence: 0, error: true, errorMsg: `HTTP ${response.status}: ${response.statusText}` }
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
 
       const data = await response.json()
@@ -1362,21 +1353,24 @@ const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
       // 移除 base64 前缀（如果有的话）
       const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '')
 
-      // 调用 RapidOCR API 服务
-      const response = await fetch(`${umiOcrUrl.value}/ocr`, {
+      // 调用 UMI-OCR API 服务
+      // UMI-OCR 的 HTTP API 路径是 /api/ocr
+      const response = await fetch(`${umiOcrUrl.value}/api/ocr`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          image_base64: base64Data
+          base64: base64Data
         })
       })
 
       console.log('收到响应:', response.status, response.statusText)
 
       if (!response.ok) {
-        console.error('HTTP错误:', response.status, response.statusText)
+        // 尝试读取错误信息
+        const errorText = await response.text()
+        console.error('HTTP错误:', response.status, response.statusText, '详情:', errorText)
         if (attempt < retryCount) {
           await new Promise(resolve => setTimeout(resolve, 1000))
           continue
@@ -1385,33 +1379,35 @@ const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
       }
 
       const data = await response.json()
-      console.log('响应数据:', data)
+      console.log('响应数据:', JSON.stringify(data, null, 2))
 
-      // RapidOCR 返回格式: { success: true, text: "...", words: [{text: "...", confidence: 0.95}] }
-      if (data.success && data.words && data.words.length > 0) {
-        // 使用返回的完整文本
-        const text = data.text || data.words.map(item => item.text).join(' ')
+      // UMI-OCR 返回格式: { code: 100, data: [{text: "...", score: 0.88}] }
+      // code: 100 表示成功，101 表示无文字
+      if (data.code === 100 && data.data && data.data.length > 0) {
+        // 合并所有识别的文字
+        const text = data.data.map(item => item.text).join(' ')
         // 计算平均置信度
-        const avgScore = data.words.reduce((sum, item) => sum + (item.confidence || 0), 0) / data.words.length
+        const avgScore = data.data.reduce((sum, item) => sum + (item.score || 0), 0) / data.data.length
         const confidence = Math.round(avgScore * 100)
 
         console.log('识别成功:', text, '置信度:', confidence)
         return { text, confidence }
       }
 
-      // 如果没有识别到文字
-      if (data.success && (!data.words || data.words.length === 0)) {
+      // 如果没有识别到文字 (code: 101)
+      if (data.code === 101 || (data.data && data.data.length === 0)) {
+        console.log('未识别到文字')
         return { text: '', confidence: 0 }
       }
 
       // 其他错误
-      if (!data.success) {
-        console.error('RapidOCR错误:', data.error)
+      if (data.code !== 100) {
+        console.error('UMI-OCR错误 - 完整响应:', JSON.stringify(data, null, 2))
         if (attempt < retryCount) {
           await new Promise(resolve => setTimeout(resolve, 1000))
           continue
         }
-        return { text: '', confidence: 0, error: true, errorMsg: data.error || '识别失败' }
+        return { text: '', confidence: 0, error: true, errorMsg: data.message || `错误码: ${data.code}` }
       }
 
       return { text: '', confidence: 0 }
