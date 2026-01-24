@@ -8,6 +8,7 @@
 import os
 import io
 import base64
+import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from PIL import Image
@@ -51,8 +52,11 @@ def ocr():
         if image.mode != 'RGB':
             image = image.convert('RGB')
 
+        # 转换为 numpy 数组（RapidOCR 需要）
+        image_array = np.array(image)
+
         # 执行 OCR 识别
-        result, elapse = ocr_engine(image)
+        result, elapse = ocr_engine(image_array)
 
         # 格式化结果
         if result is None:
