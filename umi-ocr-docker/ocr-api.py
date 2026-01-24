@@ -33,7 +33,9 @@ def ocr():
     """OCR 识别端点"""
     try:
         # 获取图片数据
-        if 'image' not in request.files and 'image_base64' not in request.json:
+        json_data = request.get_json(silent=True) or {}
+
+        if 'image' not in request.files and 'image_base64' not in json_data:
             return jsonify({'error': 'No image provided'}), 400
 
         # 处理文件上传
@@ -41,8 +43,8 @@ def ocr():
             file = request.files['image']
             image = Image.open(file.stream)
         # 处理 base64 编码
-        elif 'image_base64' in request.json:
-            image_data = base64.b64decode(request.json['image_base64'])
+        elif 'image_base64' in json_data:
+            image_data = base64.b64decode(json_data['image_base64'])
             image = Image.open(io.BytesIO(image_data))
 
         # 转换为 RGB 模式（如果需要）
