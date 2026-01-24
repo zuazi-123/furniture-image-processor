@@ -46,3 +46,13 @@ nul
 # Local Netlify folder
 .netlify
 deno.lock
+
+# Python 相关（后端文件应该在 umi-ocr-docker/ 目录中）
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+ENV/
