@@ -129,14 +129,14 @@
           <label>识别引擎：</label>
           <select v-model="ocrEngine" class="engine-select">
             <option value="baidu">百度 OCR（在线）</option>
-            <option value="umi">UMI-OCR（本地）</option>
+            <option value="umi">RapidOCR（云端/本地）</option>
           </select>
-          <span class="hint-text">{{ ocrEngine === 'baidu' ? '使用百度云 OCR' : '需要本地运行 UMI-OCR 服务' }}</span>
+          <span class="hint-text">{{ ocrEngine === 'baidu' ? '使用百度云 OCR' : '使用 RapidOCR 服务（免费无限制）' }}</span>
         </div>
         <div class="control-group" v-if="ocrEngine === 'umi'">
-          <label>UMI-OCR 地址：</label>
-          <input type="text" v-model="umiOcrUrl" placeholder="http://127.0.0.1:1224" style="width: 200px" />
-          <span class="hint-text">默认端口 1224</span>
+          <label>RapidOCR 地址：</label>
+          <input type="text" v-model="umiOcrUrl" placeholder="https://furniture-image-processor.onrender.com" style="width: 350px" />
+          <span class="hint-text">云端服务或本地服务地址</span>
         </div>
         <div class="control-group">
           <label>
@@ -389,8 +389,8 @@ const furnitureList = ref([]) // 当前分类的家具列表（用于显示）
 // OCR 引擎选择
 // 默认使用 UMI-OCR
 const ocrEngine = ref('umi')
-// 生产环境使用云端 UMI-OCR 地址，开发环境使用本地地址
-const umiOcrUrl = ref(import.meta.env.DEV ? 'http://127.0.0.1:1224' : 'https://umi-ocr-service.onrender.com')
+// 生产环境使用云端 RapidOCR 地址，开发环境使用本地地址
+const umiOcrUrl = ref(import.meta.env.DEV ? 'http://127.0.0.1:1224' : 'https://furniture-image-processor.onrender.com')
 
 // 纯图版相关数据
 const pureImageStep = ref(1) // 当前步骤：1=上传，2=裁剪，3=预览导出
@@ -1362,14 +1362,14 @@ const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
       // 移除 base64 前缀（如果有的话）
       const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '')
 
-      // 调用 UMI-OCR 本地服务
-      const response = await fetch(`${umiOcrUrl.value}/api/ocr`, {
+      // 调用 RapidOCR API 服务
+      const response = await fetch(`${umiOcrUrl.value}/ocr`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          base64: base64Data
+          image_base64: base64Data
         })
       })
 
@@ -1387,11 +1387,12 @@ const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
       const data = await response.json()
       console.log('响应数据:', data)
 
-      // UMI-OCR 返回格式: { code: 100, data: [{text: "...", score: 0.95}] }
-      if (data.code === 100 && data.data && data.data.length > 0) {
-        // 合并所有识别的文字
-        const text = data.data.map(item => item.text).join(' ')
-        const avgScore = data.data.reduce((sum, item) => sum + (item.score || 0), 0) / data.data.length
+      // RapidOCR 返回格式: { success: true, text: "...", words: [{text: "...", confidence: 0.95}] }
+      if (data.success && data.words && data.words.length > 0) {
+        // 使用返回的完整文本
+        const text = data.text || data.words.map(item => item.text).join(' ')
+        // 计算平均置信度
+        const avgScore = data.words.reduce((sum, item) => sum + (item.confidence || 0), 0) / data.words.length
         const confidence = Math.round(avgScore * 100)
 
         console.log('识别成功:', text, '置信度:', confidence)
@@ -1399,23 +1400,23 @@ const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
       }
 
       // 如果没有识别到文字
-      if (data.code === 100 && (!data.data || data.data.length === 0)) {
+      if (data.success && (!data.words || data.words.length === 0)) {
         return { text: '', confidence: 0 }
       }
 
       // 其他错误
-      if (data.code !== 100) {
-        console.error('UMI-OCR错误:', data.message || data.data)
+      if (!data.success) {
+        console.error('RapidOCR错误:', data.error)
         if (attempt < retryCount) {
           await new Promise(resolve => setTimeout(resolve, 1000))
           continue
         }
-        return { text: '', confidence: 0, error: true, errorMsg: data.message || '识别失败' }
+        return { text: '', confidence: 0, error: true, errorMsg: data.error || '识别失败' }
       }
 
       return { text: '', confidence: 0 }
     } catch (error) {
-      console.error(`UMI-OCR识别失败 (尝试 ${attempt}/${retryCount}):`, error.message)
+      console.error(`OCR识别失败 (尝试 ${attempt}/${retryCount}):`, error.message)
       if (attempt < retryCount) {
         await new Promise(resolve => setTimeout(resolve, 1000))
         continue
@@ -1565,9 +1566,9 @@ const processImage = async () => {
         // 如果遇到连接错误，提示用户检查配置
         if (result.error && result.errorMsg) {
           if (result.errorMsg.includes('Failed to fetch') || result.errorMsg.includes('NetworkError') || result.errorMsg.includes('HTTP')) {
-            const engineName = ocrEngine.value === 'umi' ? 'UMI-OCR' : '百度OCR'
+            const engineName = ocrEngine.value === 'umi' ? 'RapidOCR' : '百度OCR'
             const errorTips = ocrEngine.value === 'umi'
-              ? `\n\n可能原因：\n1. UMI-OCR 服务未启动\n2. 服务地址配置错误（当前：${umiOcrUrl.value}）\n3. 端口被占用\n\n解决方法：\n- 确保 UMI-OCR 服务正在运行\n- 检查服务地址是否正确\n- 尝试重启 UMI-OCR 服务`
+              ? `\n\n可能原因：\n1. RapidOCR 服务未启动或正在休眠（Render 免费版会休眠）\n2. 服务地址配置错误（当前：${umiOcrUrl.value}）\n3. 网络连接问题\n\n解决方法：\n- 等待 30-60 秒让服务唤醒\n- 检查服务地址是否正确\n- 访问 ${umiOcrUrl.value} 测试服务是否可用`
               : `\n\n可能原因：\n1. 网络连接问题\n2. API Key 或 Secret Key 配置错误\n3. 百度账户配额不足\n\n请检查您的配置并重试。`
 
             alert(`无法连接到${engineName}服务！\n\n错误信息：${result.errorMsg}${errorTips}`)
