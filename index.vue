@@ -375,7 +375,7 @@ const enhanceImage = ref(true) // 是否启用图片增强
 const hasDrawn = ref(false) // 标记是否已经绘制过框
 
 // 分类相关
-const categories = ['生产', '床', '柜子', '桌子', '座椅', '灯具', '电器', '洗浴', '墙饰', '娱乐', '庭院', '摆设', '围墙', '吊饰', '地毯']
+const categories = ['生产', '床', '柜子', '桌子', '座椅', '灯具', '电器', '洗浴', '墙饰', '娱乐', '庭院', '摆设', '围墙', '吊饰', '地毯', '地板', '墙', '框架', '门', '窗体', '楼梯', '屋顶', '动力']
 const currentCategory = ref('生产') // 当前选中的分类
 const furnitureByCategory = ref({}) // 按分类存储家具数据
 
@@ -387,10 +387,10 @@ categories.forEach(cat => {
 const furnitureList = ref([]) // 当前分类的家具列表（用于显示）
 
 // OCR 引擎选择
-// 默认使用 UMI-OCR（本地）
+// 默认使用 UMI-OCR（RapidOCR）
 const ocrEngine = ref('umi')
-// 默认使用本地 UMI-OCR 服务（通过 Vite 代理）
-const umiOcrUrl = ref('/api/umi-ocr')
+// 默认使用云端 RapidOCR 服务（免费无限制）
+const umiOcrUrl = ref('https://furniture-image-processor.onrender.com')
 
 // 纯图版相关数据
 const pureImageStep = ref(1) // 当前步骤：1=上传，2=裁剪，3=预览导出
@@ -1266,10 +1266,12 @@ const recognizeWithBaidu = async (imageBase64, retryCount = 3) => {
         console.log(`第 ${attempt} 次重试...`)
       }
 
-      // 开发环境使用本地代理，生产环境使用 Netlify Functions
-      const apiUrl = import.meta.env.DEV ? 'http://localhost:3000' : '/.netlify/functions/baidu-ocr'
+      // 开发环境检测：如果是 5175 端口（Vite 直接访问），使用本地代理
+      // 如果是 8888 端口（Netlify Dev），使用 Netlify Functions
+      const isViteDirect = window.location.port === '5175'
+      const apiUrl = isViteDirect ? 'http://localhost:3000' : '/.netlify/functions/baidu-ocr'
 
-      const requestBody = import.meta.env.DEV
+      const requestBody = isViteDirect
         ? {
             apiKey: 'hVUSfUTax1bm4vIsiDRPi1pe',
             secretKey: 'G8gLHV61UjG7ng1Rr3WR3hWrLk1m3Abx',
@@ -1343,7 +1345,7 @@ const recognizeWithBaidu = async (imageBase64, retryCount = 3) => {
 }
 
 // 使用 UMI-OCR 识别图片（本地服务）- 带重试机制
-const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
+const recognizeWithUmiOCR = async (imageBase64, retryCount = 2) => {
   for (let attempt = 1; attempt <= retryCount; attempt++) {
     try {
       if (attempt > 1) {
@@ -1354,7 +1356,7 @@ const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
       const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '')
 
       // 调用 UMI-OCR API 服务
-      // UMI-OCR 的 HTTP API 路径是 /api/ocr
+      // UMI-OCR HTTP API 路径是 /api/ocr
       const response = await fetch(`${umiOcrUrl.value}/api/ocr`, {
         method: 'POST',
         headers: {
@@ -1372,7 +1374,7 @@ const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
         const errorText = await response.text()
         console.error('HTTP错误:', response.status, response.statusText, '详情:', errorText)
         if (attempt < retryCount) {
-          await new Promise(resolve => setTimeout(resolve, 1000))
+          await new Promise(resolve => setTimeout(resolve, 500))
           continue
         }
         return { text: '', confidence: 0, error: true, errorMsg: `HTTP ${response.status}: ${response.statusText}` }
@@ -1404,7 +1406,7 @@ const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
       if (data.code !== 100) {
         console.error('UMI-OCR错误 - 完整响应:', JSON.stringify(data, null, 2))
         if (attempt < retryCount) {
-          await new Promise(resolve => setTimeout(resolve, 1000))
+          await new Promise(resolve => setTimeout(resolve, 500))
           continue
         }
         return { text: '', confidence: 0, error: true, errorMsg: data.message || `错误码: ${data.code}` }
@@ -1414,7 +1416,7 @@ const recognizeWithUmiOCR = async (imageBase64, retryCount = 3) => {
     } catch (error) {
       console.error(`OCR识别失败 (尝试 ${attempt}/${retryCount}):`, error.message)
       if (attempt < retryCount) {
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        await new Promise(resolve => setTimeout(resolve, 500))
         continue
       }
       return { text: '', confidence: 0, error: true, errorMsg: error.message }
@@ -1530,18 +1532,19 @@ const processImage = async () => {
         finalCanvas = preprocessImage(tempCanvas)
       }
 
+      // 使用 PNG 格式保持最高质量
       const cellImage = finalCanvas.toDataURL('image/png')
 
       // 根据选择的引擎调用不同的识别函数，失败时自动重试
       let result
-      let retryCount = 3 // 最多重试3次
+      let retryCount = 2 // 减少重试次数到2次
       let name = ''
       let quantity = ''
 
       for (let retry = 0; retry < retryCount; retry++) {
         if (retry > 0) {
           console.log(`格子 ${currentCell} 第 ${retry + 1} 次尝试识别...`)
-          await new Promise(resolve => setTimeout(resolve, 500)) // 重试前等待500ms
+          await new Promise(resolve => setTimeout(resolve, 300)) // 减少重试等待时间到300ms
         }
 
         if (ocrEngine.value === 'umi') {
@@ -1625,9 +1628,9 @@ const processImage = async () => {
 
       progress.value = (currentCell / totalCells) * 100
 
-      // 添加延迟避免触发QPS限制（标准版QPS为10，所以100ms即可）
+      // 添加小延迟避免触发QPS限制（本地服务可以更快）
       if (currentCell < totalCells) {
-        await new Promise(resolve => setTimeout(resolve, 150))
+        await new Promise(resolve => setTimeout(resolve, 50))
       }
     }
 
