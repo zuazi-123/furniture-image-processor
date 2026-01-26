@@ -55,6 +55,31 @@
       <span v-if="pendingFiles.length > 0" class="pending-info">
         [ 第 {{ currentFileIndex + 1 }}/{{ pendingFiles.length }} 张 ]
       </span>
+
+      <!-- 导入拖入图片按钮 -->
+      <button
+        v-if="draggedImagesByCategory[currentCategory] && draggedImagesByCategory[currentCategory].length > 0"
+        @click="importDraggedImages"
+        class="import-dragged-btn"
+      >
+        📥 导入拖入图片（{{ draggedImagesByCategory[currentCategory].length }} 张）
+      </button>
+    </div>
+
+    <!-- 拖拽上传区域 -->
+    <div
+      class="drag-drop-area"
+      :class="{ 'drag-over': isDragging }"
+      @drop="handleImageDrop"
+      @dragover="handleImageDragOver"
+      @dragenter="handleImageDragEnter"
+      @dragleave="handleImageDragLeave"
+    >
+      <div class="drag-drop-content">
+        <span class="drag-icon">📂</span>
+        <p class="drag-text">拖拽图片到这里</p>
+        <p class="drag-hint">支持多张图片，拖入后选择分类</p>
+      </div>
     </div>
 
     <!-- 原图预览 -->
@@ -338,6 +363,28 @@
       </div>
     </div>
 
+    <!-- 分类选择弹窗 -->
+    <div v-if="showCategorySelector" class="category-selector-modal" @click="closeCategorySelector">
+      <div class="category-selector-content" @click.stop>
+        <h3>选择图片分类</h3>
+        <p class="selector-hint">已拖入 {{ tempDraggedFiles.length }} 张图片，请选择要放入的分类：</p>
+        <div class="category-grid">
+          <button
+            v-for="cat in categories"
+            :key="cat"
+            class="category-selector-btn"
+            @click="selectCategoryForDraggedImages(cat)"
+          >
+            {{ cat }}
+            <span v-if="draggedImagesByCategory[cat] && draggedImagesByCategory[cat].length > 0" class="badge">
+              {{ draggedImagesByCategory[cat].length }}
+            </span>
+          </button>
+        </div>
+        <button class="cancel-btn" @click="closeCategorySelector">取消</button>
+      </div>
+    </div>
+
     <!-- 隐藏的Canvas用于图像处理 -->
     <canvas ref="canvas" style="display: none"></canvas>
   </div>
@@ -391,6 +438,17 @@ const furnitureList = ref([]) // 当前分类的家具列表（用于显示）
 const ocrEngine = ref('umi')
 // 使用本地 UMI-OCR 服务（更快）
 const umiOcrUrl = ref('http://127.0.0.1:1224')
+
+// 拖拽上传相关
+const isDragging = ref(false)
+const showCategorySelector = ref(false)
+const tempDraggedFiles = ref([])
+const draggedImagesByCategory = ref({})
+
+// 初始化所有分类的拖拽图片存储
+categories.forEach(cat => {
+  draggedImagesByCategory.value[cat] = []
+})
 
 // 纯图版相关数据
 const pureImageStep = ref(1) // 当前步骤：1=上传，2=裁剪，3=预览导出
@@ -1040,6 +1098,112 @@ const resetAll = () => {
   cropRect.value = null
   stitchedPreviewUrl.value = ''
   finalImageUrl.value = ''
+}
+
+// ========== 拖拽上传功能 ==========
+
+// 处理拖拽进入
+const handleImageDragEnter = (e) => {
+  e.preventDefault()
+  isDragging.value = true
+}
+
+// 处理拖拽经过
+const handleImageDragOver = (e) => {
+  e.preventDefault()
+  e.dataTransfer.dropEffect = 'copy'
+}
+
+// 处理拖拽离开
+const handleImageDragLeave = (e) => {
+  e.preventDefault()
+  // 只有当真正离开拖放区域时才取消高亮
+  if (e.target.classList.contains('drag-drop-area')) {
+    isDragging.value = false
+  }
+}
+
+// 处理拖放
+const handleImageDrop = (e) => {
+  e.preventDefault()
+  isDragging.value = false
+
+  const files = Array.from(e.dataTransfer.files).filter(file =>
+    file.type.startsWith('image/')
+  )
+
+  if (files.length === 0) {
+    alert('请拖入图片文件！')
+    return
+  }
+
+  // 保存临时文件并显示分类选择器
+  tempDraggedFiles.value = files
+  showCategorySelector.value = true
+}
+
+// 选择分类并保存拖入的图片
+const selectCategoryForDraggedImages = async (category) => {
+  const files = tempDraggedFiles.value
+
+  // 读取所有图片并保存到对应分类
+  for (const file of files) {
+    const reader = new FileReader()
+
+    await new Promise((resolve) => {
+      reader.onload = (e) => {
+        draggedImagesByCategory.value[category].push({
+          file: file,
+          dataUrl: e.target.result,
+          name: file.name
+        })
+        resolve()
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
+  // 关闭选择器
+  showCategorySelector.value = false
+  tempDraggedFiles.value = []
+
+  alert(`已将 ${files.length} 张图片添加到"${category}"分类`)
+}
+
+// 关闭分类选择器
+const closeCategorySelector = () => {
+  showCategorySelector.value = false
+  tempDraggedFiles.value = []
+}
+
+// 导入拖入的图片
+const importDraggedImages = async () => {
+  const draggedImages = draggedImagesByCategory.value[currentCategory.value]
+
+  if (!draggedImages || draggedImages.length === 0) {
+    alert('当前分类没有拖入的图片！')
+    return
+  }
+
+  // 确认导入
+  if (!confirm(`确定要导入 ${draggedImages.length} 张拖入的图片吗？\n\n导入后将按顺序依次上传并识别。`)) {
+    return
+  }
+
+  // 将拖入的图片转换为 File 对象数组
+  const files = draggedImages.map(img => img.file)
+
+  // 保存到待处理列表
+  pendingFiles.value = files
+  currentFileIndex.value = 0
+
+  // 加载第一个文件
+  loadFile(files[0])
+
+  // 清空该分类的拖入图片
+  draggedImagesByCategory.value[currentCategory.value] = []
+
+  alert(`已加载第一张图片，请绘制裁剪框后点击"开始识别"`)
 }
 
 // ========== 图文版功能 ==========
@@ -2883,5 +3047,156 @@ h3 {
 
 .engine-select:hover {
   border-color: #409eff;
+}
+
+/* 拖拽上传区域样式 */
+.drag-drop-area {
+  margin: 20px 0;
+  padding: 40px;
+  border: 3px dashed #ddd;
+  border-radius: 8px;
+  background: #fafafa;
+  text-align: center;
+  transition: all 0.3s;
+  cursor: pointer;
+}
+
+.drag-drop-area.drag-over {
+  border-color: #409eff;
+  background: #f0f9ff;
+  transform: scale(1.02);
+}
+
+.drag-drop-content {
+  pointer-events: none;
+}
+
+.drag-icon {
+  font-size: 48px;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.drag-text {
+  font-size: 18px;
+  font-weight: bold;
+  color: #333;
+  margin: 10px 0;
+}
+
+.drag-hint {
+  font-size: 14px;
+  color: #999;
+  margin: 5px 0;
+}
+
+/* 导入拖入图片按钮 */
+.import-dragged-btn {
+  margin-left: 15px;
+  background: #67c23a;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  font-size: 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.import-dragged-btn:hover {
+  background: #85ce61;
+}
+
+/* 分类选择弹窗 */
+.category-selector-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.category-selector-content {
+  background: white;
+  border-radius: 12px;
+  padding: 30px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.category-selector-content h3 {
+  margin: 0 0 15px 0;
+  color: #333;
+  font-size: 20px;
+  text-align: center;
+}
+
+.selector-hint {
+  text-align: center;
+  color: #666;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.category-selector-btn {
+  padding: 15px 10px;
+  border: 2px solid #ddd;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.3s;
+  position: relative;
+}
+
+.category-selector-btn:hover {
+  border-color: #409eff;
+  color: #409eff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(64, 158, 255, 0.2);
+}
+
+.category-selector-btn .badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background: #f56c6c;
+  color: white;
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.cancel-btn {
+  width: 100%;
+  padding: 12px;
+  background: #909399;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.cancel-btn:hover {
+  background: #a6a9ad;
 }
 </style>
