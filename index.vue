@@ -389,8 +389,8 @@ const furnitureList = ref([]) // 当前分类的家具列表（用于显示）
 // OCR 引擎选择
 // 默认使用 UMI-OCR（RapidOCR）
 const ocrEngine = ref('umi')
-// 默认使用云端 RapidOCR 服务（免费无限制）
-const umiOcrUrl = ref('https://furniture-image-processor.onrender.com')
+// 使用本地 UMI-OCR 服务（更快）
+const umiOcrUrl = ref('http://127.0.0.1:1224')
 
 // 纯图版相关数据
 const pureImageStep = ref(1) // 当前步骤：1=上传，2=裁剪，3=预览导出

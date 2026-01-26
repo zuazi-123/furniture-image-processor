@@ -2,61 +2,10 @@
   "name": "furniture-image-processor",
   "version": "1.0.0",
   "description": "家具图片自动识别和Excel导出工具",
-  "main": "electron-main.cjs",
   "scripts": {
     "dev": "netlify dev",
-    "dev:vite": "vite",
-    "dev:local": "concurrently \"npm run proxy\" \"npm run dev:vite\"",
-    "dev:simple": "concurrently \"npm run proxy\" \"npm run dev:vite\"",
     "build": "vite build",
-    "preview": "vite preview",
-    "proxy": "node proxy-server.js",
-    "electron": "electron .",
-    "electron:dev": "concurrently \"npm run dev:vite\" \"wait-on http://localhost:5175 && electron .\"",
-    "electron:build": "npm run build && electron-builder",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
-  },
-  "build": {
-    "appId": "com.furniture.processor",
-    "productName": "家具图片处理工具",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "electron-main.cjs",
-      "node_modules/**/*",
-      "package.json"
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "signtoolOptions": null,
-      "signAndEditExecutable": false
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "家具图片处理工具"
-    },
-    "mac": {
-      "target": "dmg"
-    },
-    "linux": {
-      "target": "AppImage"
-    }
+    "preview": "vite preview"
   },
   "dependencies": {
     "@netlify/blobs": "^10.5.0",
@@ -65,13 +14,8 @@
     "vue": "^3.4.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.9.6",
     "@vitejs/plugin-vue": "^5.0.0",
-    "concurrently": "^9.2.1",
-    "electron": "^40.0.0",
-    "electron-builder": "^26.4.0",
     "netlify-cli": "^23.13.5",
-    "vite": "^5.0.0",
-    "wait-on": "^9.0.3"
+    "vite": "^5.0.0"
   }
 }
