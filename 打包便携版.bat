@@ -19,28 +19,28 @@ if errorlevel 1 (
 
 :: 2. 创建便携版目录
 echo [2/5] 创建便携版目录...
-if exist "furniture-portable" rd /s /q "furniture-portable"
-mkdir "furniture-portable"
-mkdir "furniture-portable\家具图片处理工具"
+if exist furniture-portable rd /s /q furniture-portable
+mkdir furniture-portable
+mkdir furniture-portable\app
 
 :: 3. 复制文件
 echo [3/5] 复制应用文件...
-xcopy /E /I /Y "dist" "furniture-portable\家具图片处理工具\dist"
-copy /Y "portable\server.js" "furniture-portable\家具图片处理工具\"
-copy /Y "portable\启动.bat" "furniture-portable\家具图片处理工具\"
-copy /Y "portable\一键启动.bat" "furniture-portable\"
-copy /Y "portable\使用说明.txt" "furniture-portable\"
+xcopy /E /I /Y dist furniture-portable\app\dist >nul
+copy /Y portable\server.js furniture-portable\app\ >nul
+copy /Y portable\启动.bat furniture-portable\app\ >nul
+copy /Y portable\一键启动.bat furniture-portable\ >nul
+copy /Y portable\使用说明.txt furniture-portable\ >nul
 
 :: 4. 安装生产依赖
 echo [4/5] 安装依赖包...
-cd "furniture-portable\家具图片处理工具"
-npm init -y >nul 2>&1
+cd furniture-portable\app
+call npm init -y >nul 2>&1
 call npm install express --production --no-save >nul 2>&1
 cd ..\..
 
 :: 5. 下载 Node.js 便携版（如果不存在）
 echo [5/5] 准备 Node.js 运行环境...
-if not exist "node-portable" (
+if not exist node-portable (
     echo.
     echo [提示] 需要下载 Node.js 便携版
     echo 请手动下载并解压到 node-portable 文件夹
@@ -50,7 +50,7 @@ if not exist "node-portable" (
     echo.
 ) else (
     echo 复制 Node.js 运行环境...
-    copy /Y "node-portable\node.exe" "furniture-portable\家具图片处理工具\"
+    copy /Y node-portable\node.exe furniture-portable\app\ >nul
 )
 
 echo.

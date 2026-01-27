@@ -9,14 +9,14 @@ echo ========================================
 echo.
 
 :: 检查 UMI-OCR 是否存在
-if not exist "UMI-OCR\Umi-OCR.exe" (
+if not exist UMI-OCR\Umi-OCR.exe (
     echo [警告] 未找到 UMI-OCR！
     echo.
     echo 请确保 UMI-OCR 文件夹存在，并包含 Umi-OCR.exe
     echo.
     echo 您可以：
     echo 1. 下载 UMI-OCR 并解压到当前目录的 UMI-OCR 文件夹
-    echo 2. 或手动启动 UMI-OCR 后，再运行"家具图片处理工具\启动.bat"
+    echo 2. 或手动启动 UMI-OCR 后，再运行 app\启动.bat
     echo.
     pause
     exit /b 1
@@ -24,7 +24,7 @@ if not exist "UMI-OCR\Umi-OCR.exe" (
 
 :: 启动 UMI-OCR
 echo [1/3] 正在启动 UMI-OCR...
-start "" "UMI-OCR\Umi-OCR.exe"
+start "" UMI-OCR\Umi-OCR.exe
 
 :: 等待 UMI-OCR 启动
 echo [2/3] 等待 UMI-OCR 启动（3秒）...
@@ -32,8 +32,8 @@ timeout /t 3 /nobreak >nul
 
 :: 启动家具图片处理工具
 echo [3/3] 正在启动家具图片处理工具...
-cd /d "%~dp0家具图片处理工具"
-start "" cmd /c "启动.bat"
+cd /d "%~dp0app"
+start "" cmd /c 启动.bat
 
 echo.
 echo ========================================
