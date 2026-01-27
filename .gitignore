@@ -56,3 +56,7 @@ __pycache__/
 venv/
 env/
 ENV/
+
+# 便携版打包文件（包含大量二进制文件）
+furniture-portable/
+furniture-portable.zip
