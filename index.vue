@@ -165,7 +165,8 @@
           <input type="text" v-model="umiOcrUrl" placeholder="https://furniture-image-processor.onrender.com" style="width: 350px" />
           <span class="hint-text">云端服务或本地服务地址</span>
         </div>
-        <div class="control-group">
+        <!-- 隐藏图片增强选项，默认开启 -->
+        <div class="control-group" v-if="false">
           <label>
             <input type="checkbox" v-model="enhanceImage" />
             图片增强（提高清晰度和对比度）
