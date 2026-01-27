@@ -375,7 +375,7 @@
           <button
             v-for="cat in categories"
             :key="cat"
-            class="category-selector-btn"
+            :class="['category-selector-btn', { selected: selectedCategoryForDrag === cat }]"
             @click="selectCategoryForDraggedImages(cat)"
           >
             {{ cat }}
@@ -384,7 +384,10 @@
             </span>
           </button>
         </div>
-        <button class="cancel-btn" @click="closeCategorySelector">取消</button>
+        <div class="modal-buttons">
+          <button class="cancel-btn" @click="closeCategorySelector">取消</button>
+          <button class="confirm-btn" @click="confirmCategorySelection">确定</button>
+        </div>
       </div>
     </div>
 
@@ -447,6 +450,7 @@ const isDragging = ref(false)
 const showCategorySelector = ref(false)
 const tempDraggedFiles = ref([])
 const draggedImagesByCategory = ref({})
+const selectedCategoryForDrag = ref('') // 当前选中的分类（用于拖拽）
 
 // 初始化所有分类的拖拽图片存储
 categories.forEach(cat => {
@@ -1145,8 +1149,19 @@ const handleImageDrop = (e) => {
   showCategorySelector.value = true
 }
 
-// 选择分类并保存拖入的图片
-const selectCategoryForDraggedImages = async (category) => {
+// 选择分类（点击分类按钮时）
+const selectCategoryForDraggedImages = (category) => {
+  selectedCategoryForDrag.value = category
+}
+
+// 确认分类选择并保存图片
+const confirmCategorySelection = async () => {
+  if (!selectedCategoryForDrag.value) {
+    alert('请先选择一个分类！')
+    return
+  }
+
+  const category = selectedCategoryForDrag.value
   const files = tempDraggedFiles.value
 
   // 读取所有图片并保存到对应分类
@@ -1166,17 +1181,17 @@ const selectCategoryForDraggedImages = async (category) => {
     })
   }
 
-  // 关闭选择器
+  // 关闭选择器（不显示 alert）
   showCategorySelector.value = false
   tempDraggedFiles.value = []
-
-  alert(`已将 ${files.length} 张图片添加到"${category}"分类`)
+  selectedCategoryForDrag.value = ''
 }
 
 // 关闭分类选择器
 const closeCategorySelector = () => {
   showCategorySelector.value = false
   tempDraggedFiles.value = []
+  selectedCategoryForDrag.value = ''
 }
 
 // 导入拖入的图片
@@ -1188,25 +1203,25 @@ const importDraggedImages = async () => {
     return
   }
 
-  // 确认导入
-  if (!confirm(`确定要导入 ${draggedImages.length} 张拖入的图片吗？\n\n导入后将按顺序依次上传并识别。`)) {
-    return
+  try {
+    // 将拖入的图片转换为 File 对象数组
+    const files = draggedImages.map(img => img.file)
+
+    // 保存到待处理列表
+    pendingFiles.value = files
+    currentFileIndex.value = 0
+
+    // 加载第一个文件
+    loadFile(files[0])
+
+    // 清空该分类的拖入图片
+    draggedImagesByCategory.value[currentCategory.value] = []
+
+    // 只在切换到下一张时提示（这个提示保留）
+    // alert(`已加载第一张图片，请绘制裁剪框后点击"开始识别"`)
+  } catch (error) {
+    alert(`导入失败：${error.message}`)
   }
-
-  // 将拖入的图片转换为 File 对象数组
-  const files = draggedImages.map(img => img.file)
-
-  // 保存到待处理列表
-  pendingFiles.value = files
-  currentFileIndex.value = 0
-
-  // 加载第一个文件
-  loadFile(files[0])
-
-  // 清空该分类的拖入图片
-  draggedImagesByCategory.value[currentCategory.value] = []
-
-  alert(`已加载第一张图片，请绘制裁剪框后点击"开始识别"`)
 }
 
 // ========== 图文版功能 ==========
@@ -3175,6 +3190,12 @@ h3 {
   box-shadow: 0 4px 12px rgba(64, 158, 255, 0.2);
 }
 
+.category-selector-btn.selected {
+  border-color: #409eff;
+  background: #409eff;
+  color: white;
+}
+
 .category-selector-btn .badge {
   position: absolute;
   top: -8px;
@@ -3187,8 +3208,14 @@ h3 {
   font-weight: bold;
 }
 
+.modal-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
 .cancel-btn {
-  width: 100%;
+  flex: 1;
   padding: 12px;
   background: #909399;
   color: white;
@@ -3201,5 +3228,21 @@ h3 {
 
 .cancel-btn:hover {
   background: #a6a9ad;
+}
+
+.confirm-btn {
+  flex: 1;
+  padding: 12px;
+  background: #409eff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.confirm-btn:hover {
+  background: #66b1ff;
 }
 </style>
