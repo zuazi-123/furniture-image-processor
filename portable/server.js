@@ -5,11 +5,44 @@ const { exec } = require('child_process')
 const app = express()
 const PORT = 8888
 
+// 解析 JSON 请求体
+app.use(express.json())
+
+// 本地认证端点（绕过 Netlify 函数）
+app.post('/.netlify/functions/auth', (req, res) => {
+  const { action, password } = req.body
+
+  if (action === 'login') {
+    // 本地环境：任意密码都可以登录
+    res.json({
+      success: true,
+      expireTime: Date.now() + 24 * 60 * 60 * 1000 // 24小时后过期
+    })
+  } else if (action === 'admin-login') {
+    // 管理员登录
+    res.json({
+      success: true
+    })
+  } else if (action === 'admin-get-records') {
+    // 管理员数据
+    res.json({
+      ipStats: [],
+      records: [],
+      blockedIPs: []
+    })
+  } else {
+    res.status(400).json({
+      success: false,
+      error: '未知操作'
+    })
+  }
+})
+
 // 提供静态文件
 app.use(express.static(path.join(__dirname, 'dist')))
 
 // 所有路由都返回 index.html（支持 Vue Router）
-app.get('*', (req, res) => {
+app.use((req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'))
 })
 

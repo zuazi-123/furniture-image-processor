@@ -4,7 +4,7 @@
   functions = "netlify/functions"
 
 [dev]
-  command = "npm run dev:vite"
+  command = "vite"
   targetPort = 5175
   port = 8888
   autoLaunch = false
