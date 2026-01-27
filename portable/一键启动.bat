@@ -1,49 +1,48 @@
 @echo off
-chcp 65001 >nul
-title 家具图片处理工具 - 一键启动
+title Furniture Image Processor - One Click Start
 
 echo.
 echo ========================================
-echo   家具图片处理工具 - 一键启动
+echo   One Click Start
 echo ========================================
 echo.
 
-:: 检查 UMI-OCR 是否存在
+:: Check if UMI-OCR exists
 if not exist UMI-OCR\Umi-OCR.exe (
-    echo [警告] 未找到 UMI-OCR！
+    echo [WARNING] UMI-OCR not found!
     echo.
-    echo 请确保 UMI-OCR 文件夹存在，并包含 Umi-OCR.exe
+    echo Please ensure UMI-OCR folder exists with Umi-OCR.exe
     echo.
-    echo 您可以：
-    echo 1. 下载 UMI-OCR 并解压到当前目录的 UMI-OCR 文件夹
-    echo 2. 或手动启动 UMI-OCR 后，再运行 app\启动.bat
+    echo You can:
+    echo 1. Download UMI-OCR and extract to UMI-OCR folder
+    echo 2. Or manually start UMI-OCR, then run app\start.bat
     echo.
     pause
     exit /b 1
 )
 
-:: 启动 UMI-OCR
-echo [1/3] 正在启动 UMI-OCR...
+:: Start UMI-OCR
+echo [1/3] Starting UMI-OCR...
 start "" UMI-OCR\Umi-OCR.exe
 
-:: 等待 UMI-OCR 启动
-echo [2/3] 等待 UMI-OCR 启动（3秒）...
+:: Wait for UMI-OCR to start
+echo [2/3] Waiting for UMI-OCR to start (3 seconds)...
 timeout /t 3 /nobreak >nul
 
-:: 启动家具图片处理工具
-echo [3/3] 正在启动家具图片处理工具...
+:: Start application
+echo [3/3] Starting application...
 cd /d "%~dp0app"
-start "" cmd /c 启动.bat
+start "" cmd /c start.bat
 
 echo.
 echo ========================================
-echo   所有服务已启动！
+echo   All services started!
 echo ========================================
 echo.
-echo 提示：
-echo - UMI-OCR 已在后台运行
-echo - 浏览器会自动打开应用页面
-echo - 使用完毕后，请关闭所有窗口
+echo Tips:
+echo - UMI-OCR is running in background
+echo - Browser will open automatically
+echo - Close all windows when done
 echo.
-echo 按任意键退出此窗口...
+echo Press any key to exit...
 pause >nul
