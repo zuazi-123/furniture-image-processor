@@ -150,7 +150,8 @@
             （已生成 {{ allRects.length }} 个框，选中 {{ allRects.filter(r => r.selected).length }} 个）
           </span>
         </div>
-        <div class="control-group">
+        <!-- 隐藏识别引擎选择 -->
+        <div class="control-group" v-if="false">
           <label>识别引擎：</label>
           <select v-model="ocrEngine" class="engine-select">
             <option value="baidu">百度 OCR（在线）</option>
@@ -158,7 +159,8 @@
           </select>
           <span class="hint-text">{{ ocrEngine === 'baidu' ? '使用百度云 OCR' : '使用 RapidOCR 服务（免费无限制）' }}</span>
         </div>
-        <div class="control-group" v-if="ocrEngine === 'umi'">
+        <!-- 隐藏 RapidOCR 地址配置 -->
+        <div class="control-group" v-if="false">
           <label>RapidOCR 地址：</label>
           <input type="text" v-model="umiOcrUrl" placeholder="https://furniture-image-processor.onrender.com" style="width: 350px" />
           <span class="hint-text">云端服务或本地服务地址</span>
