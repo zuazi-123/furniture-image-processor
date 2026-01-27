@@ -4,6 +4,7 @@
   "description": "家具图片自动识别和Excel导出工具",
   "scripts": {
     "dev": "netlify dev",
+    "dev:vite": "vite",
     "build": "vite build",
     "preview": "vite preview"
   },
