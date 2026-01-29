@@ -225,10 +225,50 @@
       <button @click="downloadAllImages" class="export-btn download-images-btn">
         🖼️ 下载所有图片
       </button>
+      <button @click="showColorExportDialog" class="export-btn color-export-btn">
+        🎨 导出分色版
+      </button>
     </div>
 
       <!-- 隐藏的Canvas用于图像处理 -->
       <canvas ref="canvas" style="display: none"></canvas>
+
+      <!-- 分色版导出对话框 -->
+      <div v-if="showColorExport" class="modal-overlay" @click="closeColorExportDialog">
+        <div class="modal-content" @click.stop>
+          <h3>🎨 分色版导出设置</h3>
+          <div class="export-settings">
+            <div class="setting-group">
+              <label>每行图片数量：</label>
+              <input type="number" v-model.number="colorExportSettings.itemsPerRow" min="1" max="10" />
+            </div>
+            <div class="setting-group">
+              <label>水平间距（px）：</label>
+              <input type="number" v-model.number="colorExportSettings.horizontalSpacing" min="0" max="200" />
+            </div>
+            <div class="setting-group">
+              <label>垂直间距（px）：</label>
+              <input type="number" v-model.number="colorExportSettings.verticalSpacing" min="0" max="200" />
+            </div>
+            <div class="setting-group">
+              <label>
+                <input type="checkbox" v-model="colorExportSettings.autoDetectQuality" />
+                自动识别图片品质（底色）
+              </label>
+            </div>
+            <div class="setting-group">
+              <label>
+                <input type="checkbox" v-model="colorExportSettings.separateStructure" />
+                将结构类别分离到单独图片（地板、墙、框架、门、窗体、楼梯、屋顶、动力）
+              </label>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button @click="closeColorExportDialog" class="cancel-btn">取消</button>
+            <button @click="exportColorVersion" class="confirm-btn">开始导出</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 纯图版内容 -->
@@ -429,6 +469,9 @@ const hasDrawn = ref(false) // 标记是否已经绘制过框
 
 // 分类相关
 const categories = ['生产', '床', '柜子', '桌子', '座椅', '灯具', '电器', '洗浴', '墙饰', '娱乐', '庭院', '摆设', '围墙', '吊饰', '地毯', '地板', '墙', '框架', '门', '窗体', '楼梯', '屋顶', '动力']
+
+// 定义结构类别
+const structureCategories = ['地板', '墙', '框架', '门', '窗体', '楼梯', '屋顶', '动力']
 const currentCategory = ref('生产') // 当前选中的分类
 const furnitureByCategory = ref({}) // 按分类存储家具数据
 
@@ -444,6 +487,16 @@ const furnitureList = ref([]) // 当前分类的家具列表（用于显示）
 const ocrEngine = ref('umi')
 // 使用本地 UMI-OCR 服务（更快）
 const umiOcrUrl = ref('http://127.0.0.1:1224')
+
+// 分色版导出相关
+const showColorExport = ref(false)
+const colorExportSettings = ref({
+  itemsPerRow: 4,
+  horizontalSpacing: 20,
+  verticalSpacing: 20,
+  autoDetectQuality: true,
+  separateStructure: false // 是否将结构类别分离到单独的图片
+})
 
 // 拖拽上传相关
 const isDragging = ref(false)
@@ -2171,6 +2224,366 @@ const downloadAllImages = async () => {
     alert('打包失败: ' + error.message)
   }
 }
+
+// 显示分色版导出对话框
+const showColorExportDialog = () => {
+  // 检查是否有数据
+  const hasData = categories.some(cat => furnitureByCategory.value[cat].length > 0)
+  if (!hasData) {
+    alert('没有数据可导出！请先上传并识别家具图片。')
+    return
+  }
+  showColorExport.value = true
+}
+
+// 关闭分色版导出对话框
+const closeColorExportDialog = () => {
+  showColorExport.value = false
+}
+
+// 检测图片主要背景色（改进版）
+const detectImageQuality = async (imageDataUrl) => {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const tempCanvas = document.createElement('canvas')
+      const ctx = tempCanvas.getContext('2d')
+
+      // 设置画布大小为图片大小
+      tempCanvas.width = img.width
+      tempCanvas.height = img.height
+      ctx.drawImage(img, 0, 0)
+
+      // 只采样图片中间段左右两边的像素来判断背景色，避免顶部底部和中间家具内容干扰
+      const sampleSize = 50 // 增加采样点数
+      const samples = []
+
+      // 计算中间段的范围（垂直方向的中间30%-70%区域，扩大范围）
+      const middleStart = Math.floor(img.height * 0.3)
+      const middleEnd = Math.floor(img.height * 0.7)
+      const middleHeight = middleEnd - middleStart
+
+      // 计算采样宽度（图片宽度的10%，但至少10像素，最多30像素）
+      const sampleWidth = Math.min(30, Math.max(10, Math.floor(img.width * 0.1)))
+
+      // 只采样中间段的左右两边，每边采样更宽的区域
+      for (let i = 0; i < sampleSize; i++) {
+        const yPos = middleStart + Math.floor(i * (middleHeight / sampleSize))
+
+        // 左边缘（采样左侧区域）
+        for (let col = 0; col < sampleWidth; col++) {
+          const leftData = ctx.getImageData(col, yPos, 1, 1).data
+          samples.push({ r: leftData[0], g: leftData[1], b: leftData[2] })
+        }
+
+        // 右边缘（采样右侧区域）
+        for (let col = 0; col < sampleWidth; col++) {
+          const rightData = ctx.getImageData(img.width - 1 - col, yPos, 1, 1).data
+          samples.push({ r: rightData[0], g: rightData[1], b: rightData[2] })
+        }
+      }
+
+      // 计算平均颜色
+      const avgColor = samples.reduce((acc, color) => {
+        acc.r += color.r
+        acc.g += color.g
+        acc.b += color.b
+        return acc
+      }, { r: 0, g: 0, b: 0 })
+
+      avgColor.r /= samples.length
+      avgColor.g /= samples.length
+      avgColor.b /= samples.length
+
+      // 计算HSV值，用于更准确的颜色判断
+      const r = avgColor.r / 255
+      const g = avgColor.g / 255
+      const b = avgColor.b / 255
+
+      const max = Math.max(r, g, b)
+      const min = Math.min(r, g, b)
+      const delta = max - min
+
+      // 计算色相 (Hue)
+      let h = 0
+      if (delta !== 0) {
+        if (max === r) {
+          h = 60 * (((g - b) / delta) % 6)
+        } else if (max === g) {
+          h = 60 * (((b - r) / delta) + 2)
+        } else {
+          h = 60 * (((r - g) / delta) + 4)
+        }
+      }
+      if (h < 0) h += 360
+
+      // 计算饱和度 (Saturation)
+      const s = max === 0 ? 0 : delta / max
+
+      // 计算明度 (Value)
+      const v = max
+
+      console.log(`颜色分析 - RGB(${Math.round(avgColor.r)}, ${Math.round(avgColor.g)}, ${Math.round(avgColor.b)}) HSV(${Math.round(h)}, ${(s * 100).toFixed(1)}%, ${(v * 100).toFixed(1)}%)`)
+
+      // 根据HSV值判断品质 - 放宽范围，让相近颜色归为一类
+      let quality = 'white'
+
+      // 1. 首先判断是否为无色（白色/灰色/黑色/低饱和度颜色）- 提高饱和度阈值
+      if (s < 0.25) {
+        quality = 'white' // 所有低饱和度的都归为其他色类别
+      }
+      // 2. 金色判断 - 色相在黄色到橙色范围 (10-75度)，放宽范围
+      else if (h >= 10 && h <= 75 && s > 0.25 && v > 0.3) {
+        quality = 'gold'
+      }
+      // 3. 绿色判断 - 色相在绿色范围 (75-165度)，放宽范围
+      else if (h >= 75 && h <= 165 && s > 0.25 && v > 0.3) {
+        quality = 'green'
+      }
+      // 4. 蓝色判断 - 色相在青蓝到蓝色范围 (165-240度)，提高饱和度要求
+      else if (h >= 165 && h <= 240 && s > 0.3 && v > 0.25) {
+        quality = 'blue'
+      }
+      // 5. 紫色判断 - 色相在蓝紫到紫红范围 (240-330度)，提高饱和度要求
+      else if (h >= 240 && h <= 330 && s > 0.3 && v > 0.25) {
+        quality = 'purple'
+      }
+      // 6. 其他情况，根据RGB值判断
+      else {
+        // 如果红色和绿色都较高，蓝色较低 -> 金色
+        if (avgColor.r > 80 && avgColor.g > 60 && avgColor.b < avgColor.g * 0.9) {
+          quality = 'gold'
+        }
+        // 如果绿色明显最高 -> 绿色
+        else if (avgColor.g > avgColor.r + 20 && avgColor.g > avgColor.b + 20) {
+          quality = 'green'
+        }
+        // 如果蓝色较高且偏冷色调 -> 蓝色
+        else if (avgColor.b > avgColor.r + 10 && avgColor.b >= avgColor.g) {
+          quality = 'blue'
+        }
+        // 如果蓝色和红色都较高 -> 紫色
+        else if (avgColor.b > avgColor.g + 10 && avgColor.r > avgColor.g) {
+          quality = 'purple'
+        }
+        // 默认归为暗灰色
+        else {
+          quality = 'white'
+        }
+      }
+
+      console.log(`判断结果: ${quality}`)
+      resolve(quality)
+    }
+    img.src = imageDataUrl
+  })
+}
+
+// 导出分色版
+const exportColorVersion = async () => {
+  try {
+    processing.value = true
+    progressText.value = '正在分析图片品质...'
+
+    // 收集所有家具数据
+    const allFurniture = []
+    for (const category of categories) {
+      const items = furnitureByCategory.value[category]
+      if (items.length > 0) {
+        allFurniture.push(...items)
+      }
+    }
+
+    if (allFurniture.length === 0) {
+      alert('没有数据可导出！')
+      processing.value = false
+      return
+    }
+
+    // 如果启用自动识别，为每个家具检测品质
+    if (colorExportSettings.value.autoDetectQuality) {
+      progressText.value = `正在识别图片品质... (0/${allFurniture.length})`
+
+      for (let i = 0; i < allFurniture.length; i++) {
+        const item = allFurniture[i]
+        item.quality = await detectImageQuality(item.image)
+        progressText.value = `正在识别图片品质... (${i + 1}/${allFurniture.length})`
+      }
+    }
+
+    // 根据是否分离结构，分组数据
+    let furnitureGroup = allFurniture
+    let structureGroup = []
+
+    if (colorExportSettings.value.separateStructure) {
+      // 分离家具和结构
+      furnitureGroup = allFurniture.filter(item => !structureCategories.includes(item.category))
+      structureGroup = allFurniture.filter(item => structureCategories.includes(item.category))
+    }
+
+    // 按品质排序（金色、紫色、蓝色、绿色、暗灰色）
+    const qualityOrder = { gold: 0, purple: 1, blue: 2, green: 3, white: 4 }
+    const sortByQuality = (arr) => {
+      arr.sort((a, b) => {
+        const orderA = qualityOrder[a.quality || 'white']
+        const orderB = qualityOrder[b.quality || 'white']
+        return orderA - orderB
+      })
+    }
+
+    sortByQuality(furnitureGroup)
+    if (structureGroup.length > 0) {
+      sortByQuality(structureGroup)
+    }
+
+    // 生成图片的函数
+    const generateImage = async (items, filename) => {
+      if (items.length === 0) return null
+
+      progressText.value = `正在生成${filename}...`
+
+      // 创建画布
+      const exportCanvas = document.createElement('canvas')
+      const ctx = exportCanvas.getContext('2d')
+
+      // 加载所有图片
+      const loadedImages = await Promise.all(
+        items.map(item => {
+          return new Promise((resolve) => {
+            const img = new Image()
+            img.onload = () => resolve({ img, item })
+            img.src = item.image
+          })
+        })
+      )
+
+      // 计算布局
+      const itemsPerRow = colorExportSettings.value.itemsPerRow
+      const hSpacing = colorExportSettings.value.horizontalSpacing
+      const vSpacing = colorExportSettings.value.verticalSpacing
+      const padding = 40 // 画布边距
+
+      // 找出最大的图片宽度，作为统一宽度
+      let maxWidth = 0
+      loadedImages.forEach(({ img }) => {
+        if (img.width > maxWidth) maxWidth = img.width
+      })
+
+      // 计算每张图片缩放后的尺寸（统一宽度，按比例缩放高度）
+      const scaledImages = loadedImages.map(({ img, item }) => {
+        const scale = maxWidth / img.width
+        const scaledHeight = img.height * scale
+        return {
+          img,
+          item,
+          width: maxWidth,
+          height: scaledHeight,
+          scale
+        }
+      })
+
+      // 按行分组，计算每行的最大高度
+      const rows = []
+      for (let i = 0; i < scaledImages.length; i += itemsPerRow) {
+        const rowImages = scaledImages.slice(i, i + itemsPerRow)
+        const maxRowHeight = Math.max(...rowImages.map(img => img.height))
+        rows.push({
+          images: rowImages,
+          height: maxRowHeight
+        })
+      }
+
+      // 计算画布尺寸
+      const canvasWidth = padding * 2 + maxWidth * itemsPerRow + hSpacing * (itemsPerRow - 1)
+      const totalHeight = rows.reduce((sum, row) => sum + row.height, 0)
+      const canvasHeight = padding * 2 + totalHeight + vSpacing * (rows.length - 1)
+
+      exportCanvas.width = canvasWidth
+      exportCanvas.height = canvasHeight
+
+      // 填充白色背景
+      ctx.fillStyle = '#FFFFFF'
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight)
+
+      // 绘制所有图片
+      let currentY = padding
+      rows.forEach((row, rowIndex) => {
+        row.images.forEach((scaledImg, colIndex) => {
+          const x = padding + colIndex * (maxWidth + hSpacing)
+          const y = currentY
+
+          // 垂直居中绘制图片（在当前行的高度范围内）
+          const offsetY = (row.height - scaledImg.height) / 2
+
+          // 绘制缩放后的图片（统一宽度）
+          ctx.drawImage(
+            scaledImg.img,
+            x,
+            y + offsetY,
+            scaledImg.width,
+            scaledImg.height
+          )
+        })
+        currentY += row.height + vSpacing
+      })
+
+      // 导出图片
+      return new Promise((resolve) => {
+        exportCanvas.toBlob((blob) => {
+          resolve({ blob, filename, count: items.length })
+        }, 'image/png')
+      })
+    }
+
+    // 生成并下载图片
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)
+    const results = []
+
+    if (furnitureGroup.length > 0) {
+      const result = await generateImage(furnitureGroup, `家具分色版_${timestamp}.png`)
+      if (result) results.push(result)
+    }
+
+    if (structureGroup.length > 0) {
+      const result = await generateImage(structureGroup, `结构分色版_${timestamp}.png`)
+      if (result) results.push(result)
+    }
+
+    // 下载所有生成的图片
+    progressText.value = '正在保存图片...'
+
+    for (const { blob, filename, count } of results) {
+      const link = document.createElement('a')
+      link.href = URL.createObjectURL(blob)
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(link.href)
+    }
+
+    processing.value = false
+    showColorExport.value = false
+
+    // 显示结果信息
+    let message = '分色版导出成功！\n\n'
+    if (colorExportSettings.value.separateStructure && structureGroup.length > 0) {
+      message += `家具图片：${furnitureGroup.length} 件\n`
+      message += `结构图片：${structureGroup.length} 件\n`
+      message += `共生成 2 张图片`
+    } else {
+      message += `共 ${allFurniture.length} 件家具\n按品质排序：金色 → 紫色 → 蓝色 → 绿色 → 暗灰色`
+    }
+
+    alert(message)
+
+  } catch (error) {
+    console.error('导出失败:', error)
+    processing.value = false
+    alert('导出失败: ' + error.message)
+  }
+}
+
 </script>
 
 <style scoped>
@@ -3244,5 +3657,118 @@ h3 {
 
 .confirm-btn:hover {
   background: #66b1ff;
+}
+
+/* 分色版导出对话框 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  padding: 30px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.modal-content h3 {
+  margin: 0 0 20px 0;
+  color: #333;
+  font-size: 20px;
+  text-align: center;
+}
+
+.export-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-bottom: 25px;
+}
+
+.setting-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.setting-group label {
+  min-width: 140px;
+  color: #666;
+  font-size: 14px;
+}
+
+.setting-group input[type="number"] {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.3s;
+}
+
+.setting-group input[type="number"]:focus {
+  outline: none;
+  border-color: #409eff;
+}
+
+.setting-group input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+}
+
+.modal-actions .cancel-btn,
+.modal-actions .confirm-btn {
+  flex: 1;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.modal-actions .cancel-btn {
+  background: #909399;
+  color: white;
+}
+
+.modal-actions .cancel-btn:hover {
+  background: #a6a9ad;
+}
+
+.modal-actions .confirm-btn {
+  background: #409eff;
+  color: white;
+}
+
+.modal-actions .confirm-btn:hover {
+  background: #66b1ff;
+}
+
+.color-export-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.color-export-btn:hover {
+  background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+  transform: translateY(-2px);
 }
 </style>
