@@ -61,15 +61,17 @@
 ---
 
 ## 打包文件
-- `furniture-portable-v1.1.0-final.zip` (182MB)
-  - 包含完整的应用程序
-  - **支持使用系统Node.js或便携版Node.js**
-  - 包含UMI-OCR识别引擎
+- `furniture-portable-v1.1.0-final.zip` (207MB)
+  - ✅ **包含完整的应用程序**
+  - ✅ **包含 Node.js 运行环境（node.exe）**
+  - ✅ **包含 UMI-OCR 识别引擎**
+  - ✅ **真正的便携版，解压即用**
   - 双击 `start.bat` 或 `一键启动.bat` 即可使用
   - **已修复：浏览器自动打开功能**
   - **新增：纯图版拖拽上传功能**
 
-### 使用要求
-- 需要安装 Node.js（或将 node.exe 放在 app 目录下）
-- 下载地址：https://nodejs.org
-- 启动脚本会自动检测系统Node.js或本地node.exe
+### 使用说明
+- **无需安装任何依赖**
+- 解压后直接运行即可
+- 启动脚本会优先使用内置的 node.exe
+- 如果内置 node.exe 不可用，会尝试使用系统 Node.js
