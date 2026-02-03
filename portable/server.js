@@ -66,18 +66,25 @@ app.listen(PORT, () => {
   const url = `http://localhost:${PORT}`
   const platform = process.platform
 
-  let command
-  if (platform === 'win32') {
-    command = `start ${url}`
-  } else if (platform === 'darwin') {
-    command = `open ${url}`
-  } else {
-    command = `xdg-open ${url}`
-  }
-
-  exec(command, (error) => {
-    if (error) {
-      console.log('无法自动打开浏览器，请手动访问:', url)
+  // 延迟1秒后打开浏览器，确保服务器已完全启动
+  setTimeout(() => {
+    let command
+    if (platform === 'win32') {
+      // Windows: 使用 cmd /c start 命令
+      command = `cmd /c start "" "${url}"`
+    } else if (platform === 'darwin') {
+      command = `open ${url}`
+    } else {
+      command = `xdg-open ${url}`
     }
-  })
+
+    exec(command, (error, stdout, stderr) => {
+      if (error) {
+        console.log('无法自动打开浏览器，请手动访问:', url)
+        console.log('错误信息:', error.message)
+      } else {
+        console.log('✓ 浏览器已自动打开')
+      }
+    })
+  }, 1500)
 })

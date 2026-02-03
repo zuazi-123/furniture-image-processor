@@ -51,6 +51,16 @@
       <button @click="$refs.fileInput.click()" class="upload-btn">
         📁 批量选择家具图片（{{ currentCategory }}）
       </button>
+      <button @click="triggerImportExcel" class="upload-btn import-excel-btn">
+        📥 导入Excel继续编辑
+      </button>
+      <input
+        ref="excelFileInput"
+        type="file"
+        accept=".xlsx,.xls"
+        @change="handleExcelImport"
+        style="display: none"
+      />
       <span v-if="fileName" class="file-name">{{ fileName }}</span>
       <span v-if="pendingFiles.length > 0" class="pending-info">
         [ 第 {{ currentFileIndex + 1 }}/{{ pendingFiles.length }} 张 ]
@@ -276,7 +286,14 @@
       <!-- 步骤1: 上传图片 -->
       <div class="step-section" v-if="pureImageStep === 1">
         <h3>步骤 1/3：上传图片</h3>
-        <div class="upload-area">
+        <div
+          class="upload-area"
+          :class="{ 'drag-over': isPureImageDragging }"
+          @drop="handlePureImageDrop"
+          @dragover="handlePureImageDragOver"
+          @dragenter="handlePureImageDragEnter"
+          @dragleave="handlePureImageDragLeave"
+        >
           <input
             type="file"
             ref="pureImageInput"
@@ -285,9 +302,14 @@
             @change="handlePureImageUpload"
             style="display: none"
           />
-          <button @click="$refs.pureImageInput.click()" class="upload-btn">
-            📁 选择图片（可多选）
-          </button>
+          <div class="upload-content">
+            <span class="upload-icon">📂</span>
+            <p class="upload-text">拖拽图片到这里</p>
+            <p class="upload-hint">或</p>
+            <button @click="$refs.pureImageInput.click()" class="upload-btn">
+              📁 选择图片（可多选）
+            </button>
+          </div>
         </div>
 
         <!-- 图片列表 -->
@@ -444,6 +466,7 @@ import ExcelJS from 'exceljs'
 // 数据
 const currentMode = ref('text-image') // 当前模式：'text-image' 图文版，'pure-image' 纯图版
 const fileInput = ref(null)
+const excelFileInput = ref(null) // Excel文件输入
 const uploadedImage = ref(null)
 const fileName = ref('')
 const canvas = ref(null)
@@ -491,9 +514,9 @@ const umiOcrUrl = ref('http://127.0.0.1:1224')
 // 分色版导出相关
 const showColorExport = ref(false)
 const colorExportSettings = ref({
-  itemsPerRow: 4,
-  horizontalSpacing: 20,
-  verticalSpacing: 20,
+  itemsPerRow: 8,
+  horizontalSpacing: 15,
+  verticalSpacing: 15,
   autoDetectQuality: true,
   separateStructure: false // 是否将结构类别分离到单独的图片
 })
@@ -528,6 +551,7 @@ const finalImageUrl = ref('') // 最终图片URL
 const showPreview = ref(false) // 是否显示预览弹窗
 const previewImageUrl = ref('') // 预览图片URL
 const dragOverIndex = ref(-1) // 拖拽悬停的索引
+const isPureImageDragging = ref(false) // 纯图版拖拽状态
 let imageIdCounter = 0
 
 // 绘制框相关方法
@@ -655,6 +679,7 @@ const clearRect = () => {
   hasDrawn.value = false // 重置绘制标记，允许重新绘制
 }
 
+// 手动触发自动检测
 // 切换框的选中状态
 const toggleRect = (index) => {
   allRects.value[index].selected = !allRects.value[index].selected
@@ -684,6 +709,48 @@ const switchMode = (mode) => {
 }
 
 // ========== 纯图版功能 ==========
+
+// 纯图版拖拽上传处理
+const handlePureImageDragEnter = (e) => {
+  e.preventDefault()
+  isPureImageDragging.value = true
+}
+
+const handlePureImageDragOver = (e) => {
+  e.preventDefault()
+}
+
+const handlePureImageDragLeave = (e) => {
+  e.preventDefault()
+  // 只有当离开整个拖拽区域时才取消高亮
+  if (e.target.classList.contains('upload-area')) {
+    isPureImageDragging.value = false
+  }
+}
+
+const handlePureImageDrop = (e) => {
+  e.preventDefault()
+  isPureImageDragging.value = false
+
+  const files = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'))
+  if (files.length === 0) {
+    alert('请拖入图片文件')
+    return
+  }
+
+  files.forEach(file => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      pureImages.value.push({
+        id: imageIdCounter++,
+        name: file.name,
+        url: e.target.result,
+        originalImage: null
+      })
+    }
+    reader.readAsDataURL(file)
+  })
+}
 
 // 处理图片上传
 const handlePureImageUpload = (event) => {
@@ -1300,6 +1367,8 @@ const deleteFurnitureItem = (index) => {
   }
 }
 
+
+
 // 处理文件上传（支持批量）
 const handleFileUpload = (event) => {
   const files = Array.from(event.target.files)
@@ -1333,6 +1402,9 @@ const loadFile = (file) => {
       imageHeight.value = img.height
 
       console.log(`图片尺寸: ${img.width}x${img.height}`)
+
+      // 自动检测家具外框
+      autoDetectFurnitureFrames(img)
     }
     img.src = e.target.result
   }
@@ -2008,6 +2080,10 @@ const exportToExcel = async () => {
     return
   }
 
+  // 显示loading
+  processing.value = true
+  progressText.value = '正在生成Excel文件...'
+
   try {
     // 创建工作簿
     const workbook = new ExcelJS.Workbook()
@@ -2171,16 +2247,216 @@ const exportToExcel = async () => {
     // 释放URL对象
     URL.revokeObjectURL(link.href)
 
+    processing.value = false
     alert('Excel导出成功！\n\n✨ 已按分类导出，每个分类有独立表头')
   } catch (error) {
+    processing.value = false
     console.error('导出失败:', error)
     alert('导出失败: ' + error.message)
+  }
+}
+
+// 触发Excel文件选择
+const triggerImportExcel = () => {
+  excelFileInput.value.click()
+}
+
+// 导入Excel文件
+const handleExcelImport = async (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+
+  // 显示loading
+  processing.value = true
+  progressText.value = '正在读取Excel文件...'
+
+  try {
+    // 读取Excel文件
+    const arrayBuffer = await file.arrayBuffer()
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(arrayBuffer)
+
+    console.log('📂 Excel文件已加载')
+    console.log('工作表列表:', workbook.worksheets.map(ws => ws.name))
+
+    const worksheet = workbook.getWorksheet('家具清单')
+    if (!worksheet) {
+      processing.value = false
+      alert('Excel文件格式不正确，找不到"家具清单"工作表')
+      return
+    }
+
+    progressText.value = '正在解析数据...'
+
+    // 清空当前数据
+    categories.forEach(cat => {
+      furnitureByCategory.value[cat] = []
+    })
+    furnitureList.value = []
+
+    const itemsPerRow = 4 // 每行4个产品
+    const colsPerItem = 4 // 每个产品占4列
+
+    let lastCategory = '' // 最后读取到的分类
+    let totalRows = 0
+    let dataRows = 0
+
+    // 遍历所有行
+    worksheet.eachRow((row, rowNumber) => {
+      totalRows++
+
+      // 获取第一列的值
+      const firstCellValue = row.getCell(1).value
+
+      console.log(`第${rowNumber}行: 第一列值 = "${firstCellValue}"`)
+
+      // 检查是否是分类标题行
+      if (typeof firstCellValue === 'string' && categories.includes(firstCellValue)) {
+        lastCategory = firstCellValue
+        console.log(`✓ 识别到分类: ${lastCategory}`)
+        return
+      }
+
+      // 检查是否是表头行
+      if (firstCellValue === '图片') {
+        console.log(`✓ 识别到表头行`)
+        return
+      }
+
+      // 检查是否是空行（所有列都为空）
+      let hasData = false
+      for (let i = 1; i <= itemsPerRow * colsPerItem; i++) {
+        if (row.getCell(i).value) {
+          hasData = true
+          break
+        }
+      }
+
+      if (!hasData) {
+        console.log(`第${rowNumber}行: 空行，跳过`)
+        return
+      }
+
+      // 数据行：读取每行的4个产品
+      if (lastCategory) {
+        console.log(`  当前分类: ${lastCategory}，开始读取产品数据`)
+        dataRows++
+
+        for (let i = 0; i < itemsPerRow; i++) {
+          const startCol = i * colsPerItem + 1
+          const imageCell = row.getCell(startCol)
+          const nameCell = row.getCell(startCol + 1)
+          const quantityCell = row.getCell(startCol + 2)
+          const priceCell = row.getCell(startCol + 3)
+
+          console.log(`    产品${i + 1}: 名称="${nameCell.value}", 数量="${quantityCell.value}", 价格="${priceCell.value}"`)
+
+          // 如果名称为空，跳过这个产品
+          if (!nameCell.value) {
+            console.log(`    产品${i + 1}: 名称为空，跳过`)
+            continue
+          }
+
+          // 提取图片（如果有）
+          let imageData = null
+
+          // 检查单元格是否包含图片
+          const images = worksheet.getImages()
+          console.log(`    工作表中共有 ${images.length} 张图片`)
+
+          // 查找当前单元格范围内的图片
+          for (const img of images) {
+            const imgRange = img.range
+            if (imgRange &&
+                imgRange.tl.row + 1 === rowNumber &&
+                imgRange.tl.col + 1 === startCol) {
+              const imageId = img.imageId
+              const image = workbook.getImage(imageId)
+              if (image && image.buffer) {
+                console.log(`    产品${i + 1}: 找到图片，大小=${image.buffer.length}字节`)
+                // 将图片buffer转换为base64
+                const base64 = btoa(
+                  new Uint8Array(image.buffer).reduce(
+                    (data, byte) => data + String.fromCharCode(byte),
+                    ''
+                  )
+                )
+                const extension = image.extension || 'png'
+                imageData = `data:image/${extension};base64,${base64}`
+              }
+              break
+            }
+          }
+
+          // 创建家具项
+          const item = {
+            name: nameCell.value || '',
+            quantity: quantityCell.value || '',
+            price: priceCell.value || '',
+            image: imageData || '',
+            category: lastCategory
+          }
+
+          console.log(`    ✓ 添加产品: ${item.name}`)
+
+          // 添加到对应分类
+          furnitureByCategory.value[lastCategory].push(item)
+        }
+      } else {
+        console.log(`  ⚠️ 未识别到分类，跳过此行`)
+      }
+    })
+
+    console.log(`\n📊 解析完成:`)
+    console.log(`  总行数: ${totalRows}`)
+    console.log(`  数据行数: ${dataRows}`)
+
+    // 更新当前分类的家具列表
+    if (lastCategory) {
+      currentCategory.value = lastCategory
+      furnitureList.value = furnitureByCategory.value[lastCategory]
+      console.log(`  切换到分类: ${lastCategory}`)
+    } else {
+      // 如果没有分类，使用第一个有数据的分类
+      for (const cat of categories) {
+        if (furnitureByCategory.value[cat].length > 0) {
+          currentCategory.value = cat
+          furnitureList.value = furnitureByCategory.value[cat]
+          console.log(`  切换到分类: ${cat}`)
+          break
+        }
+      }
+    }
+
+    // 统计导入的数据
+    let totalItems = 0
+    categories.forEach(cat => {
+      const count = furnitureByCategory.value[cat].length
+      if (count > 0) {
+        console.log(`  ${cat}: ${count} 项`)
+      }
+      totalItems += count
+    })
+
+    processing.value = false
+    alert(`✅ 成功导入 ${totalItems} 个家具项！`)
+
+    // 清空文件选择
+    event.target.value = ''
+  } catch (error) {
+    processing.value = false
+    console.error('导入Excel失败:', error)
+    alert('导入Excel失败：' + error.message)
   }
 }
 
 // 下载所有切好的图片（打包成zip）
 const downloadAllImages = async () => {
   if (furnitureList.value.length === 0) return
+
+  // 显示loading
+  processing.value = true
+  progressText.value = '正在准备图片...'
 
   try {
     // 创建zip对象
@@ -2196,7 +2472,6 @@ const downloadAllImages = async () => {
 
     // 生成zip文件
     progressText.value = '正在打包图片...'
-    processing.value = true
 
     const content = await zip.generateAsync({
       type: 'blob',
@@ -2819,6 +3094,15 @@ h3 {
   background: #66b1ff;
 }
 
+.import-excel-btn {
+  background: #67c23a;
+  margin-left: 15px;
+}
+
+.import-excel-btn:hover {
+  background: #85ce61;
+}
+
 .file-name {
   margin-left: 15px;
   color: #666;
@@ -2953,6 +3237,22 @@ h3 {
 
 .clear-btn:hover {
   background: #f78989;
+}
+
+.auto-detect-btn {
+  background: #67c23a;
+  color: white;
+  border: none;
+  padding: 10px 25px;
+  font-size: 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.3s;
+  margin-right: 10px;
+}
+
+.auto-detect-btn:hover {
+  background: #85ce61;
 }
 
 .toggle-btn {
@@ -3100,6 +3400,15 @@ h3 {
   background: #ebb563;
 }
 
+.import-btn {
+  background: #67c23a;
+  margin-left: 15px;
+}
+
+.import-btn:hover {
+  background: #85ce61;
+}
+
 .download-images-btn {
   background: #909399;
   margin-left: 15px;
@@ -3132,6 +3441,51 @@ h3 {
   color: #666;
   margin-bottom: 15px;
   font-size: 16px;
+}
+
+/* 上传区域 */
+.upload-area {
+  border: 3px dashed #ddd;
+  border-radius: 8px;
+  padding: 60px 20px;
+  text-align: center;
+  background: #fafafa;
+  transition: all 0.3s;
+  cursor: pointer;
+}
+
+.upload-area:hover {
+  border-color: #409eff;
+  background: #f0f9ff;
+}
+
+.upload-area.drag-over {
+  border-color: #67c23a;
+  background: #f0f9ff;
+  box-shadow: 0 0 20px rgba(103, 194, 58, 0.3);
+}
+
+.upload-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+.upload-icon {
+  font-size: 48px;
+}
+
+.upload-text {
+  font-size: 18px;
+  color: #666;
+  margin: 0;
+}
+
+.upload-hint {
+  font-size: 14px;
+  color: #999;
+  margin: 0;
 }
 
 /* 图片列表 */
