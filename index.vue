@@ -2538,8 +2538,8 @@ const detectImageQuality = async (imageDataUrl) => {
       const middleEnd = Math.floor(img.height * 0.7)
       const middleHeight = middleEnd - middleStart
 
-      // 计算采样宽度（图片宽度的10%，但至少10像素，最多30像素）
-      const sampleWidth = Math.min(30, Math.max(10, Math.floor(img.width * 0.1)))
+      // 扩大采样宽度到图片宽度的20%，但至少20像素，最多50像素
+      const sampleWidth = Math.min(50, Math.max(20, Math.floor(img.width * 0.2)))
 
       // 只采样中间段的左右两边，每边采样更宽的区域
       for (let i = 0; i < sampleSize; i++) {
@@ -2558,17 +2558,55 @@ const detectImageQuality = async (imageDataUrl) => {
         }
       }
 
-      // 计算平均颜色
-      const avgColor = samples.reduce((acc, color) => {
-        acc.r += color.r
-        acc.g += color.g
-        acc.b += color.b
-        return acc
-      }, { r: 0, g: 0, b: 0 })
+      // 将颜色分组统计（使用颜色聚类，容差为30）
+      const colorGroups = []
+      const tolerance = 30 // 颜色容差
 
-      avgColor.r /= samples.length
-      avgColor.g /= samples.length
-      avgColor.b /= samples.length
+      samples.forEach(color => {
+        // 查找是否有相近的颜色组
+        let foundGroup = false
+        for (const group of colorGroups) {
+          const avgR = group.totalR / group.count
+          const avgG = group.totalG / group.count
+          const avgB = group.totalB / group.count
+
+          // 如果颜色差异在容差范围内，归入该组
+          if (Math.abs(color.r - avgR) <= tolerance &&
+              Math.abs(color.g - avgG) <= tolerance &&
+              Math.abs(color.b - avgB) <= tolerance) {
+            group.totalR += color.r
+            group.totalG += color.g
+            group.totalB += color.b
+            group.count++
+            foundGroup = true
+            break
+          }
+        }
+
+        // 如果没有找到相近的组，创建新组
+        if (!foundGroup) {
+          colorGroups.push({
+            totalR: color.r,
+            totalG: color.g,
+            totalB: color.b,
+            count: 1
+          })
+        }
+      })
+
+      // 找出数量最多的颜色组
+      const dominantGroup = colorGroups.reduce((max, group) =>
+        group.count > max.count ? group : max
+      , colorGroups[0])
+
+      // 计算主要颜色的平均值
+      const avgColor = {
+        r: dominantGroup.totalR / dominantGroup.count,
+        g: dominantGroup.totalG / dominantGroup.count,
+        b: dominantGroup.totalB / dominantGroup.count
+      }
+
+      console.log(`采样统计 - 总采样点: ${samples.length}, 颜色组数: ${colorGroups.length}, 主色占比: ${(dominantGroup.count / samples.length * 100).toFixed(1)}%`)
 
       // 计算HSV值，用于更准确的颜色判断
       const r = avgColor.r / 255
@@ -2607,26 +2645,31 @@ const detectImageQuality = async (imageDataUrl) => {
       if (s < 0.25) {
         quality = 'white' // 所有低饱和度的都归为其他色类别
       }
-      // 2. 金色判断 - 色相在黄色到橙色范围 (10-75度)，放宽范围
+      // 2. 紫色判断 - 色相在蓝紫到紫红范围 (240-330度)，提高饱和度要求
+      // 注意：紫色要先判断，避免被金色误判
+      else if ((h >= 240 && h <= 330) && s > 0.3 && v > 0.25) {
+        quality = 'purple'
+      }
+      // 3. 金色判断 - 色相在黄色到橙色范围 (10-75度)，放宽范围
       else if (h >= 10 && h <= 75 && s > 0.25 && v > 0.3) {
         quality = 'gold'
       }
-      // 3. 绿色判断 - 色相在绿色范围 (75-165度)，放宽范围
+      // 4. 绿色判断 - 色相在绿色范围 (75-165度)，放宽范围
       else if (h >= 75 && h <= 165 && s > 0.25 && v > 0.3) {
         quality = 'green'
       }
-      // 4. 蓝色判断 - 色相在青蓝到蓝色范围 (165-240度)，提高饱和度要求
+      // 5. 蓝色判断 - 色相在青蓝到蓝色范围 (165-240度)，提高饱和度要求
       else if (h >= 165 && h <= 240 && s > 0.3 && v > 0.25) {
         quality = 'blue'
       }
-      // 5. 紫色判断 - 色相在蓝紫到紫红范围 (240-330度)，提高饱和度要求
-      else if (h >= 240 && h <= 330 && s > 0.3 && v > 0.25) {
-        quality = 'purple'
-      }
       // 6. 其他情况，根据RGB值判断
       else {
+        // 如果蓝色和红色都较高，且蓝色>绿色 -> 紫色（优先判断）
+        if (avgColor.b > avgColor.g + 15 && avgColor.r > avgColor.g + 10) {
+          quality = 'purple'
+        }
         // 如果红色和绿色都较高，蓝色较低 -> 金色
-        if (avgColor.r > 80 && avgColor.g > 60 && avgColor.b < avgColor.g * 0.9) {
+        else if (avgColor.r > 80 && avgColor.g > 60 && avgColor.b < avgColor.g * 0.9) {
           quality = 'gold'
         }
         // 如果绿色明显最高 -> 绿色
@@ -2636,10 +2679,6 @@ const detectImageQuality = async (imageDataUrl) => {
         // 如果蓝色较高且偏冷色调 -> 蓝色
         else if (avgColor.b > avgColor.r + 10 && avgColor.b >= avgColor.g) {
           quality = 'blue'
-        }
-        // 如果蓝色和红色都较高 -> 紫色
-        else if (avgColor.b > avgColor.g + 10 && avgColor.r > avgColor.g) {
-          quality = 'purple'
         }
         // 默认归为暗灰色
         else {
@@ -2711,6 +2750,9 @@ const exportColorVersion = async () => {
       sortByQuality(structureGroup)
     }
 
+    // 调试：输出排序后的品质顺序
+    console.log('家具组排序后的品质:', furnitureGroup.slice(0, 10).map(item => `${item.name}:${item.quality || 'white'}`))
+
     // 生成图片的函数
     const generateImage = async (items, filename) => {
       if (items.length === 0) return null
@@ -2723,14 +2765,28 @@ const exportColorVersion = async () => {
 
       // 加载所有图片
       const loadedImages = await Promise.all(
-        items.map(item => {
-          return new Promise((resolve) => {
+        items.map((item, index) => {
+          return new Promise((resolve, reject) => {
             const img = new Image()
-            img.onload = () => resolve({ img, item })
+            img.onload = () => {
+              console.log(`图片加载成功: ${item.name}, 品质: ${item.quality || 'white'}, 尺寸: ${img.width}x${img.height}`)
+              resolve({ img, item, index })
+            }
+            img.onerror = (error) => {
+              console.error(`图片加载失败: ${item.name}`, error)
+              reject(new Error(`图片加载失败: ${item.name}`))
+            }
+            // 只对非 base64 图片设置跨域属性
+            if (!item.image.startsWith('data:')) {
+              img.crossOrigin = 'anonymous'
+            }
             img.src = item.image
           })
         })
       )
+
+      // 按原始索引排序，确保顺序不变
+      loadedImages.sort((a, b) => a.index - b.index)
 
       // 计算布局
       const itemsPerRow = colorExportSettings.value.itemsPerRow
@@ -2743,6 +2799,13 @@ const exportColorVersion = async () => {
       loadedImages.forEach(({ img }) => {
         if (img.width > maxWidth) maxWidth = img.width
       })
+
+      console.log('加载的图片数量:', loadedImages.length, '最大宽度:', maxWidth)
+
+      // 验证是否有有效的图片
+      if (maxWidth === 0 || loadedImages.length === 0) {
+        throw new Error('没有有效的图片可以导出')
+      }
 
       // 计算每张图片缩放后的尺寸（统一宽度，按比例缩放高度）
       const scaledImages = loadedImages.map(({ img, item }) => {
@@ -2769,16 +2832,44 @@ const exportColorVersion = async () => {
       }
 
       // 计算画布尺寸
-      const canvasWidth = padding * 2 + maxWidth * itemsPerRow + hSpacing * (itemsPerRow - 1)
+      let canvasWidth = padding * 2 + maxWidth * itemsPerRow + hSpacing * (itemsPerRow - 1)
       const totalHeight = rows.reduce((sum, row) => sum + row.height, 0)
-      const canvasHeight = padding * 2 + totalHeight + vSpacing * (rows.length - 1)
+      let canvasHeight = padding * 2 + totalHeight + vSpacing * (rows.length - 1)
+
+      console.log('原始画布尺寸:', { canvasWidth, canvasHeight, maxWidth, itemsPerRow, rows: rows.length })
+
+      // 验证画布尺寸
+      if (canvasWidth <= 0 || canvasHeight <= 0 || !isFinite(canvasWidth) || !isFinite(canvasHeight)) {
+        throw new Error(`无效的画布尺寸: ${canvasWidth}x${canvasHeight}`)
+      }
+
+      // 浏览器画布尺寸限制（保守值：16384）
+      const MAX_CANVAS_SIZE = 16384
+      let scale = 1
+
+      // 如果画布尺寸超过限制，进行缩放
+      if (canvasWidth > MAX_CANVAS_SIZE || canvasHeight > MAX_CANVAS_SIZE) {
+        const widthScale = MAX_CANVAS_SIZE / canvasWidth
+        const heightScale = MAX_CANVAS_SIZE / canvasHeight
+        scale = Math.min(widthScale, heightScale)
+
+        canvasWidth = Math.floor(canvasWidth * scale)
+        canvasHeight = Math.floor(canvasHeight * scale)
+
+        console.log(`画布尺寸超过限制，缩放比例: ${scale.toFixed(3)}, 新尺寸: ${canvasWidth}x${canvasHeight}`)
+      }
 
       exportCanvas.width = canvasWidth
       exportCanvas.height = canvasHeight
 
+      // 如果需要缩放，应用缩放变换
+      if (scale !== 1) {
+        ctx.scale(scale, scale)
+      }
+
       // 填充白色背景
       ctx.fillStyle = '#FFFFFF'
-      ctx.fillRect(0, 0, canvasWidth, canvasHeight)
+      ctx.fillRect(0, 0, canvasWidth / scale, canvasHeight / scale)
 
       // 绘制所有图片
       let currentY = padding
@@ -2805,6 +2896,11 @@ const exportColorVersion = async () => {
       // 导出图片
       return new Promise((resolve) => {
         exportCanvas.toBlob((blob) => {
+          if (!blob) {
+            console.error('生成图片失败：blob 为空')
+            resolve(null)
+            return
+          }
           resolve({ blob, filename, count: items.length })
         }, 'image/png')
       })
@@ -2827,7 +2923,12 @@ const exportColorVersion = async () => {
     // 下载所有生成的图片
     progressText.value = '正在保存图片...'
 
+    let successCount = 0
     for (const { blob, filename, count } of results) {
+      if (!blob) {
+        console.error(`跳过无效的图片：${filename}`)
+        continue
+      }
       const link = document.createElement('a')
       link.href = URL.createObjectURL(blob)
       link.download = filename
@@ -2835,10 +2936,16 @@ const exportColorVersion = async () => {
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(link.href)
+      successCount++
     }
 
     processing.value = false
     showColorExport.value = false
+
+    // 检查是否有成功生成的图片
+    if (successCount === 0) {
+      throw new Error('图片生成失败，请检查图片是否正确加载')
+    }
 
     // 显示结果信息
     let message = '分色版导出成功！\n\n'
